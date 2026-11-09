@@ -541,7 +541,7 @@ function sfx(kind){
 function rot(id){let h=0;for(const ch of id)h=(h*31+ch.charCodeAt(0))%997;return (h%15)-7;}
 function esc(s){return String(s).replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));}
 
-function showScreen(id){keepAwake(id==='app'||id==='lobby');for(const s of ['setup','lobby','app','profile'])$(s).hidden=s!==id;if(id!=='app')$('overlay').hidden=true;}
+function showScreen(id){keepAwake(id==='app'||id==='lobby');setTimeout(()=>statusNow&&statusNow(),0);for(const s of ['setup','lobby','app','profile'])$(s).hidden=s!==id;if(id!=='app')$('overlay').hidden=true;}
 let prevPhase=null;
 function render(){
   if(!G)return;
@@ -923,10 +923,7 @@ function renderProfile(){
   if(ui.pick)$('profPick').innerHTML=`<div class="pick-row">${AVA_ICONS.map((_,i)=>`<button class="pick ${ui.ava.i===i?'on':''}" data-act="pava" data-i="${i}" aria-label="Значок ${i+1}">${avaHTML({i,c:ui.ava.c},'','sm')}</button>`).join('')}</div>
     <div class="pick-row">${AVA_COLS.map((c,k)=>`<button class="pick col ${ui.ava.c===k?'on':''}" data-act="pcol" data-c="${k}" style="background:${c}" aria-label="Цвет ${k+1}"></button>`).join('')}</div>`;
   // друзья
-  const RV=addRivals(lsGet(RIV_CLOUD)||{},lsGet(RIV_PEND)||{});
-  const list=Object.values(RV).sort((a,b)=>b.games-a.games);
-  $('profRivals').innerHTML=list.length?list.map(r=>`<li>${avaHTML(r.ava,r.name,'sm')}<b>${esc(r.name||'Игрок')}</b><span>${r.games} ${plural(r.games,'партия','партии','партий')}</span><span class="vs ${r.w>r.l?'up':r.w<r.l?'down':''}">${r.w} : ${r.l}</span></li>`).join('')
-    :'<li class="empty">Сыграйте онлайн с друзьями — здесь появится счёт ваших встреч.</li>';
+  renderFriends();
   // достижения
   const got=lsGet(ACH_KEY)||{};
   $('profAch').innerHTML=ACH.map(([id,t,d])=>`<div class="ach ${got[id]?'on':''}"><i aria-hidden="true">${got[id]?'★':'☆'}</i><b>${t}</b><span>${d}</span></div>`).join('');
@@ -972,11 +969,12 @@ async function profAuth(kind){
     if(kind==='link')await N.linkEmail(mail,pw);
     else if(kind==='in'){await flushStats();await N.signInEmail(mail,pw);reset();}
     else{await flushStats();await N.signOutToAnon();reset();}
-    await loadProfile();renderProfile();
+    await loadProfile();if(kind!=='link'){SOC.friends={};SOC.requests={};SOC.seenReq.clear();await startSocial();}renderProfile();
     netMsg(kind==='link'?'Готово: профиль привязан к почте.':kind==='in'?'Вы вошли в профиль.':'Вы вышли. На телефоне начат новый профиль.','profMsg');
   }catch(e){netMsg(N.authErrText(e),'profMsg');}
 }
 function saveAva(){lsSet('valenok-ava',ui.ava);lsSet('valenok-ava-pending',true);renderProfile();flushStats();}
+$('nameIn').addEventListener('change',()=>{lsSet('valenok-name',myName());if(SOC.started)N.updateMe(myName()||null,null).catch(()=>{});});
 Object.assign(ACTS,{
   profile(){openProfile();},
   pback(){showSetup();},
@@ -1008,6 +1006,171 @@ setTimeout(()=>{if(lsGet(PEND_KEY)||lsGet(RIV_PEND)||lsGet('valenok-ach-pending'
     },0);
   }
 }
+
+/* ================= Друзья: заявки, статусы, приглашения ================= */
+const SOC={started:false,code:null,friends:{},requests:{},invites:{},seenReq:new Set(),seenInv:new Set(),invited:{},confirmDel:null,queue:[]};
+const INV_TTL=10*60e3;
+async function startSocial(){
+  try{
+    await N.init();
+    SOC.code=await N.ensureFriendCode();
+    await N.updateMe(myName()||null,ui.ava);
+    await N.watchSocial({
+      onFriends(v){SOC.friends=v;socialChanged();},
+      onRequests(v){SOC.requests=v;for(const [id,r] of Object.entries(v))if(!SOC.seenReq.has(id)){SOC.seenReq.add(id);popQueue({t:'req',id,...r});}socialChanged();},
+      onInvites(v){
+        SOC.invites=v;
+        for(const [id,r] of Object.entries(v)){
+          const key=id+':'+r.at;
+          if(Date.now()-r.at>INV_TTL){N.clearInvite(id);continue;}
+          if(!SOC.seenInv.has(key)){SOC.seenInv.add(key);popQueue({t:'inv',id,...r});}
+        }
+      }
+    });
+    SOC.started=true;statusNow();socialChanged();
+  }catch(e){SOC.started=false;}
+}
+let statusT=null;
+function statusNow(){
+  if(!SOC.started)return;
+  clearTimeout(statusT);
+  statusT=setTimeout(()=>{
+    const inGame=(!$('app').hidden&&G)||!$('lobby').hidden;
+    N.setStatus(inGame?'game':'online',NET.role!=='local'?NET.code:null).catch(()=>{});
+  },300);
+}
+function socialChanged(){
+  if(!$('profile').hidden)renderFriends();
+  if(!$('lobby').hidden)renderLobbyFriends();
+}
+function statusText(st){
+  if(!st)return {t:'не в сети',c:'off'};
+  if(st.state==='game')return {t:'в игре',c:'game'};
+  if(st.state==='online')return {t:'в сети',c:'on'};
+  const m=Math.round((Date.now()-(st.at||0))/60000);
+  return {t:m<2?'только что был':m<60?`был ${m} мин назад`:m<1440?`был ${Math.round(m/60)} ч назад`:`был ${Math.round(m/1440)} дн назад`,c:'off'};
+}
+function friendList(){
+  const order={game:0,on:1,off:2};
+  return Object.values(SOC.friends).sort((a,b)=>order[statusText(a.status).c]-order[statusText(b.status).c]||String(a.name).localeCompare(b.name));
+}
+
+/* ---------- всплывающие окна: заявки и приглашения ---------- */
+function popQueue(item){SOC.queue.push(item);if(SOC.queue.length===1)showPop();}
+function showPop(){
+  let el=$('pop');
+  if(!el){el=document.createElement('div');el.id='pop';el.setAttribute('role','alertdialog');document.body.appendChild(el);}
+  const it=SOC.queue[0];
+  if(!it){el.hidden=true;return;}
+  if(it.t==='inv'&&Date.now()-it.at>INV_TTL){SOC.queue.shift();showPop();return;}
+  const inRoom=NET.role!=='local'&&NET.code;
+  el.innerHTML=it.t==='inv'
+    ?`${avaHTML(it.ava,it.name,'')}<div class="pop-txt"><b>${esc(it.name)} зовёт вас в партию</b><span>Комната ${esc(it.room)}${inRoom&&it.room!==NET.code?(NET.role==='host'?' · ваша комната закроется':' · вы выйдете из текущей'):''}</span></div>
+      <div class="pop-btns"><button class="btn" data-act="popno">Не сейчас</button><button class="btn primary" data-act="popyes">Войти</button></div>`
+    :`${avaHTML(it.ava,it.name,'')}<div class="pop-txt"><b>${esc(it.name)} хочет добавить вас в друзья</b><span>Друзей можно звать в партию прямо из игры</span></div>
+      <div class="pop-btns"><button class="btn" data-act="popno">Отклонить</button><button class="btn primary" data-act="popyes">Принять</button></div>`;
+  el.hidden=false;sfx('join');buzz('turn');
+}
+async function popAnswer(yes){
+  const it=SOC.queue.shift();showPop();
+  if(!it)return;
+  try{
+    if(it.t==='req'){if(yes){await N.acceptRequest(it.id);toastAny(`${it.name} теперь в друзьях`);}else await N.declineRequest(it.id);}
+    else{
+      await N.clearInvite(it.id);
+      if(!yes)return;
+      if(NET.role!=='local'&&NET.code===it.room)return;
+      if(NET.role!=='local')await leaveGame();
+      else if(G){stashClock();save();clearTimeout(timer);G=null;}
+      showSetup();ACTS.mode(document.querySelector('#modeSeg [data-m="friends"]'));
+      $('codeIn').value=it.room;guestJoin(it.room);
+    }
+  }catch(e){toastAny(N.errText(e));}
+}
+function toastAny(m){if(!$('app').hidden)toast(m);else if(!$('profile').hidden)netMsg(m,'profMsg');else if(!$('lobby').hidden)netMsg(m,'lobbyMsg');else netMsg(m);}
+
+/* ---------- раздел «Друзья» в профиле ---------- */
+function renderFriends(){
+  const box=$('profFriends');if(!box)return;
+  if(!SOC.started){box.innerHTML='<p class="hint">Подключаемся к серверу…</p>';return;}
+  const RV=addRivals(lsGet(RIV_CLOUD)||{},lsGet(RIV_PEND)||{});
+  const reqs=Object.entries(SOC.requests);
+  const fr=friendList();
+  const others=Object.entries(RV).filter(([id])=>!SOC.friends[id]&&id!==N.net.uid).sort((a,b)=>b[1].games-a[1].games).slice(0,8);
+  const score=id=>{const r=RV[id];return r&&r.games?`<span class="vs ${r.w>r.l?'up':r.w<r.l?'down':''}">${r.w} : ${r.l}</span>`:'';};
+  box.innerHTML=`
+    <div class="fcode"><span>Ваш код друга</span><b>${SOC.code||'——————'}</b><button class="btn" data-act="fcopy">Поделиться</button></div>
+    <div class="joinrow"><input type="text" id="fAdd" maxlength="6" placeholder="код друга" autocomplete="off" autocapitalize="characters"><button class="btn primary" data-act="fadd">Добавить</button></div>
+    ${reqs.length?`<ul class="rivals">${reqs.map(([id,r])=>`<li>${avaHTML(r.ava,r.name,'sm')}<b>${esc(r.name)}</b><span>хочет дружить</span><button class="btn mini primary" data-act="freqyes" data-id="${id}">Принять</button><button class="x" data-act="freqno" data-id="${id}" aria-label="Отклонить">×</button></li>`).join('')}</ul>`:''}
+    <ul class="rivals">${fr.length?fr.map(f=>{const st=statusText(f.status);return `<li>${avaHTML(f.ava,f.name,'sm')}<b>${esc(f.name)}</b><span class="st ${st.c}">${st.t}</span>${score(f.uid)}<button class="x" data-act="fdel" data-id="${f.uid}" aria-label="Удалить из друзей">${SOC.confirmDel===f.uid?'удалить?':'×'}</button></li>`;}).join('')
+      :'<li class="empty">Пока никого. Поделитесь своим кодом или добавьте друга по его коду.</li>'}</ul>
+    ${others.length?`<span class="label">Играли вместе</span><ul class="rivals">${others.map(([id,r])=>`<li>${avaHTML(r.ava,r.name,'sm')}<b>${esc(r.name||'Игрок')}</b>${score(id)}<button class="btn mini" data-act="fask" data-id="${id}">В друзья</button></li>`).join('')}</ul>`:''}
+    ${ui.pmail?'':'<p class="hint">Привяжите почту ниже, иначе после переустановки приложения список друзей пропадёт.</p>'}`;
+}
+async function addFriendByCode(){
+  const code=($('fAdd').value||'').trim().toUpperCase();
+  if(!/^[A-Z2-9]{6}$/.test(code)){netMsg('Код друга — 6 латинских букв и цифр.','profMsg');return;}
+  if(code===SOC.code){netMsg('Это ваш собственный код.','profMsg');return;}
+  netMsg('Ищем…','profMsg');
+  try{
+    const uid=await N.findByCode(code);
+    if(!uid){netMsg('Игрока с таким кодом нет. Проверьте код.','profMsg');return;}
+    await askFriend(uid);
+  }catch(e){netMsg(N.errText(e),'profMsg');}
+}
+async function askFriend(uid){
+  if(SOC.friends[uid]){netMsg('Этот игрок уже у вас в друзьях.','profMsg');return;}
+  if(SOC.requests[uid]){await N.acceptRequest(uid);netMsg('Готово: вы теперь друзья.','profMsg');return;}
+  await N.sendRequest(uid,{name:myName()||'Игрок',ava:ui.ava});
+  const c=await N.userCard(uid).catch(()=>({name:'игрок'}));
+  netMsg(`Заявка отправлена: ${c.name}. Как только примет — появится в списке.`,'profMsg');
+}
+async function shareCode(){
+  const text=`Добавь меня в друзья в «Валенке»: мой код ${SOC.code}\nСкачать игру: ${APK_URL}\nИли играть в браузере: ${WEB_URL}`;
+  try{
+    const S=plug('Share');
+    if(S){await S.share({title:'Валенок',text,dialogTitle:'Поделиться кодом'});return;}
+    if(navigator.share){await navigator.share({title:'Валенок',text});return;}
+    await navigator.clipboard.writeText(text);netMsg('Код скопирован — вставьте его в чат с другом.','profMsg');
+  }catch(e){if(!(e&&(e.name==='AbortError'||/cancel/i.test(e.message||''))))netMsg(`Ваш код друга: ${SOC.code}`,'profMsg');}
+}
+
+/* ---------- позвать друга из комнаты ---------- */
+function renderLobbyFriends(){
+  const box=$('lobbyFriends');if(!box)return;
+  if(!SOC.started){box.innerHTML='';return;}
+  const inRoom=new Set((NET.lobby&&NET.lobby.seats||[]).map(s=>s.uid).filter(Boolean));
+  const fr=friendList();
+  box.innerHTML=`<span class="label">Позвать из друзей</span>
+    <ul class="rivals">${fr.length?fr.map(f=>{
+      const st=statusText(f.status),here=inRoom.has(f.uid),sent=SOC.invited[f.uid]&&Date.now()-SOC.invited[f.uid]<INV_TTL;
+      return `<li>${avaHTML(f.ava,f.name,'sm')}<b>${esc(f.name)}</b><span class="st ${st.c}">${here?'в комнате':st.t}</span>${here?'':`<button class="btn mini ${sent?'':'primary'}" data-act="finvite" data-id="${f.uid}" ${sent?'disabled':''}>${sent?'Позвали':'Позвать'}</button>`}</li>`;
+    }).join(''):'<li class="empty">Друзей пока нет — добавьте их в профиле по коду.</li>'}</ul>`;
+}
+async function inviteFriend(fid){
+  try{
+    await N.sendInvite(fid,{name:myName()||'Игрок',ava:ui.ava},NET.code);
+    SOC.invited[fid]=Date.now();renderLobbyFriends();
+    netMsg(`Приглашение отправлено: ${(SOC.friends[fid]||{}).name||'другу'}.`,'lobbyMsg');
+  }catch(e){netMsg(N.errText(e),'lobbyMsg');}
+}
+
+Object.assign(ACTS,{
+  popyes(){popAnswer(true);},
+  popno(){popAnswer(false);},
+  fcopy(){shareCode();},
+  fadd(){addFriendByCode();},
+  fask(el){askFriend(el.dataset.id).catch(e=>netMsg(N.errText(e),'profMsg'));},
+  freqyes(el){N.acceptRequest(el.dataset.id).then(()=>netMsg('Готово: вы теперь друзья.','profMsg')).catch(e=>netMsg(N.errText(e),'profMsg'));},
+  freqno(el){N.declineRequest(el.dataset.id).catch(()=>{});},
+  fdel(el){
+    const id=el.dataset.id;
+    if(SOC.confirmDel!==id){SOC.confirmDel=id;renderFriends();setTimeout(()=>{if(SOC.confirmDel===id){SOC.confirmDel=null;renderFriends();}},3000);return;}
+    SOC.confirmDel=null;N.removeFriend(id).catch(e=>netMsg(N.errText(e),'profMsg'));
+  },
+  finvite(el){inviteFriend(el.dataset.id);}
+});
+setTimeout(startSocial,1500);
 
 /* ================= Игра с друзьями ================= */
 function netMsg(m,id='netMsg'){$(id).textContent=m||'';}
@@ -1084,6 +1247,7 @@ function renderLobby(){
     h+=`<li>${avaHTML(s.ava,s.name,'sm')}${s.kind==='bot'?'':`<i class="dot ${on?'':'off'}"></i>`}<b>${esc(s.name)}${me&&i!==0?' (вы)':''}</b><span class="chip">${tag||'игрок'}</span>${host&&i>0?`<button class="x" data-act="kick" data-i="${i}" aria-label="Убрать">×</button>`:''}</li>`;
   }
   $('lobbySeats').innerHTML=h;
+  renderLobbyFriends();
   $('lobbyBtns').innerHTML=host
     ?`<button class="btn primary" data-act="invite">Позвать друга</button>
       <button class="btn" data-act="addbot" ${L.seats.length>=4?'disabled':''}>Добавить бота</button>

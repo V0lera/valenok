@@ -35,6 +35,43 @@
         ".read": "auth != null",
         ".write": "auth != null && auth.uid === $uid"
       }
+    },
+    "codes": {
+      "$code": {
+        ".read": "auth != null",
+        ".write": "auth != null && !data.exists() && newData.val() === auth.uid",
+        ".validate": "$code.matches(/^[A-Z2-9]{6}$/)"
+      }
+    },
+    "requests": {
+      "$to": {
+        ".read": "auth != null && auth.uid === $to",
+        "$from": {
+          ".write": "auth != null && (auth.uid === $from || auth.uid === $to)"
+        }
+      }
+    },
+    "friends": {
+      "$owner": {
+        ".read": "auth != null && auth.uid === $owner",
+        "$fid": {
+          ".write": "auth != null && (auth.uid === $owner || (auth.uid === $fid && (!newData.exists() || root.child('requests').child($fid).child($owner).exists())))"
+        }
+      }
+    },
+    "status": {
+      "$uid": {
+        ".read": "auth != null",
+        ".write": "auth != null && auth.uid === $uid"
+      }
+    },
+    "invites": {
+      "$to": {
+        ".read": "auth != null && auth.uid === $to",
+        "$from": {
+          ".write": "auth != null && (auth.uid === $to || (auth.uid === $from && (!newData.exists() || root.child('friends').child($to).child($from).exists())))"
+        }
+      }
     }
   }
 }

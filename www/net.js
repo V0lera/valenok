@@ -196,6 +196,102 @@ export async function signOutToAnon() {
   fb.uid = net.uid = c.user.uid;
 }
 
+/* ================= Друзья ================= */
+// codes/<КОД> → uid; users/<uid>/fcode; requests/<кому>/<от кого>; friends/<я>/<друг>;
+// status/<uid> — в сети / в игре / не в сети; invites/<кому>/<от кого> — приглашение в комнату.
+const CODE_ABC = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+let fUnsubs = [], statusUnsub = null, myStatus = { state: 'online', room: null };
+
+export async function ensureFriendCode() {
+  await init();
+  const cur = (await fb.D.get(R(`users/${fb.uid}/fcode`))).val();
+  if (cur) return cur;
+  for (let i = 0; i < 30; i++) {
+    let code = ''; for (let k = 0; k < 6; k++) code += CODE_ABC[Math.floor(Math.random() * CODE_ABC.length)];
+    const res = await fb.D.runTransaction(R('codes/' + code), v => (v ? undefined : fb.uid));
+    if (res.committed) { await fb.D.set(R(`users/${fb.uid}/fcode`), code); return code; }
+  }
+  throw new Error('Не удалось создать код друга.');
+}
+export async function updateMe(name, ava) {
+  await init();
+  const u = {};
+  if (name) u[`users/${fb.uid}/name`] = name;
+  if (ava) u[`users/${fb.uid}/avatar`] = ava;
+  if (Object.keys(u).length) await fb.D.update(fb.D.ref(fb.db), u);
+}
+// Статус для друзей; при обрыве связи сервер сам ставит «не в сети»
+export async function setStatus(state, room) {
+  await init();
+  myStatus = { state, room: room || null };
+  const write = async () => {
+    const p = R(`status/${fb.uid}`);
+    await fb.D.onDisconnect(p).set({ state: 'offline', at: fb.D.serverTimestamp() });
+    await fb.D.set(p, { state: myStatus.state, room: myStatus.room, at: fb.D.serverTimestamp() });
+  };
+  if (!statusUnsub) statusUnsub = fb.D.onValue(R('.info/connected'), s => { if (s.val()) write().catch(() => {}); });
+  else await write();
+}
+export async function findByCode(code) {
+  await init();
+  return (await fb.D.get(R('codes/' + code.toUpperCase()))).val();
+}
+export async function userCard(uid) {
+  await init();
+  const [n, a] = await Promise.all([fb.D.get(R(`users/${uid}/name`)), fb.D.get(R(`users/${uid}/avatar`))]);
+  return { name: n.val() || 'Игрок', ava: a.val() || null };
+}
+export async function sendRequest(to, me) {
+  await init();
+  await fb.D.set(R(`requests/${to}/${fb.uid}`), { name: me.name, ava: me.ava || null, at: Date.now() });
+}
+export async function acceptRequest(from) {
+  await init();
+  const t = Date.now(), u = {};
+  u[`friends/${fb.uid}/${from}`] = { since: t };
+  u[`friends/${from}/${fb.uid}`] = { since: t };
+  u[`requests/${fb.uid}/${from}`] = null;
+  await fb.D.update(fb.D.ref(fb.db), u);
+}
+export async function declineRequest(from) { await init(); await fb.D.remove(R(`requests/${fb.uid}/${from}`)); }
+export async function removeFriend(fid) {
+  await init();
+  const u = {}; u[`friends/${fb.uid}/${fid}`] = null; u[`friends/${fid}/${fb.uid}`] = null;
+  await fb.D.update(fb.D.ref(fb.db), u);
+}
+export async function sendInvite(to, me, room) {
+  await init();
+  await fb.D.set(R(`invites/${to}/${fb.uid}`), { name: me.name, ava: me.ava || null, room, at: Date.now() });
+}
+export async function clearInvite(from) { await init(); await fb.D.remove(R(`invites/${fb.uid}/${from}`)).catch(() => {}); }
+
+// Подписки: друзья (с именами, аватарками и статусами), заявки, приглашения
+export async function watchSocial({ onFriends, onRequests, onInvites }) {
+  await init();
+  stopSocial();
+  const per = {}; // подписки на каждого друга
+  const data = {};
+  const emit = () => onFriends && onFriends({ ...data });
+  fUnsubs.push(fb.D.onValue(R(`friends/${fb.uid}`), s => {
+    const ids = Object.keys(s.val() || {});
+    for (const id of Object.keys(per)) if (!ids.includes(id)) { per[id].forEach(u => u()); delete per[id]; delete data[id]; }
+    for (const id of ids) {
+      if (per[id]) continue;
+      data[id] = data[id] || { uid: id, name: 'Игрок', ava: null, status: null };
+      per[id] = [
+        fb.D.onValue(R(`users/${id}/name`), v => { data[id].name = v.val() || 'Игрок'; emit(); }),
+        fb.D.onValue(R(`users/${id}/avatar`), v => { data[id].ava = v.val() || null; emit(); }),
+        fb.D.onValue(R(`status/${id}`), v => { data[id].status = v.val() || null; emit(); }),
+      ];
+    }
+    emit();
+  }));
+  fUnsubs.push(() => { for (const id of Object.keys(per)) per[id].forEach(u => u()); });
+  fUnsubs.push(fb.D.onValue(R(`requests/${fb.uid}`), s => onRequests && onRequests(s.val() || {})));
+  fUnsubs.push(fb.D.onValue(R(`invites/${fb.uid}`), s => onInvites && onInvites(s.val() || {})));
+}
+export function stopSocial() { fUnsubs.forEach(u => u()); fUnsubs = []; }
+
 export async function leave() {
   unsubs.forEach(u => u()); unsubs = [];
   if (presenceUnsub) { presenceUnsub(); presenceUnsub = null; }
