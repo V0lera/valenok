@@ -10,13 +10,13 @@
   --line:rgba(230,221,208,.14);
   --display:"Ruslan Display","Georgia",serif;
   --body:"Golos Text",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
-  --cw:clamp(54px,15.5vw,78px);
-  --tw:clamp(70px,20vw,98px);
+  --cw:clamp(64px,19.5vw,100px);
+  --tw:clamp(86px,25vw,124px);
   color-scheme:dark;
 }
 *{box-sizing:border-box}
 [hidden]{display:none!important}
-html,body{height:100%}
+html,body{height:100%;margin:0}
 body{
   /* дубовая столешница: свет лампы, полумрак по краям, стыки досок, волокна дерева */
   background-color:var(--wood);
