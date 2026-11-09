@@ -1,0 +1,9 @@
+{
+  "appId": "ru.valenok.game",
+  "appName": "Валенок",
+  "webDir": "www",
+  "backgroundColor": "#2e1d11",
+  "android": {
+    "allowMixedContent": false
+  }
+}
