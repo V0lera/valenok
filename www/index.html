@@ -90,6 +90,14 @@
         <button data-act="bots" data-n="3" aria-pressed="false">3 бота</button>
       </div>
     </div>
+    <div class="field">
+      <span class="label">Сложность ботов</span>
+      <div class="seg" id="setupLevel">
+        <button data-act="slevel" data-v="easy" aria-pressed="false">Лёгкие</button>
+        <button data-act="slevel" data-v="normal" aria-pressed="true">Обычные</button>
+        <button data-act="slevel" data-v="hard" aria-pressed="false">Хитрые</button>
+      </div>
+    </div>
     <div class="row col">
       <button class="btn primary" data-act="start">Начать игру</button>
       <button class="btn" data-act="continue" id="contBtn" hidden>Продолжить партию</button>
@@ -114,7 +122,7 @@
 <section id="profile" class="wrap" hidden>
   <div class="prof-head">
     <button class="btn pback" data-act="pback" aria-label="Назад">←</button>
-    <div class="ava" id="profAva">И</div>
+    <button class="ava-btn" id="profAva" data-act="pavatar" aria-label="Сменить аватарку"></button>
     <div class="prof-id"><b id="profName">Игрок</b><span id="profSub"></span></div>
   </div>
   <div class="seg" id="profTabs">
@@ -122,8 +130,19 @@
     <button data-act="ptab" data-m="bots" aria-pressed="false">С ботами</button>
     <button data-act="ptab" data-m="online" aria-pressed="false">Онлайн</button>
   </div>
+  <div class="prof-pick" id="profPick" hidden></div>
   <div class="stats" id="profStats"></div>
   <p class="netmsg" id="profMsg" role="status"></p>
+  <h3 class="sect">Достижения <small id="profAchN"></small></h3>
+  <div class="achs" id="profAch"></div>
+  <h3 class="sect">Друзья</h3>
+  <ul class="rivals" id="profRivals"></ul>
+  <h3 class="sect">Оформление и настройки</h3>
+  <div class="field"><span class="label">Стол</span><div class="seg" id="setTable"></div></div>
+  <div class="field"><span class="label">Рубашка карт</span><div class="backrow"><div class="seg" id="setBack"></div><div class="backprev" id="backPreview"></div></div></div>
+  <div class="field"><span class="label">Боты</span><div class="seg" id="setLevel"></div></div>
+  <div class="field"><span class="label">Телефон</span><div class="seg two" id="setVibro"></div></div>
+  <h3 class="sect">Профиль в облаке</h3>
   <div class="prof-acc" id="profAcc"></div>
 </section>
 

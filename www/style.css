@@ -195,8 +195,6 @@ html{background:var(--wood)}
 #profile[hidden]{display:none}
 .prof-head{display:flex;align-items:center;gap:12px}
 .prof-head .pback{padding:10px 14px;font-size:18px;line-height:1}
-.ava{width:56px;height:56px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;
-  font-family:var(--display);font-size:28px;color:var(--card);background:var(--red);border:3px solid var(--card);box-shadow:0 3px 8px rgba(0,0,0,.4)}
 .prof-id{display:flex;flex-direction:column;gap:2px;min-width:0}
 .prof-id b{font-family:var(--display);font-weight:400;font-size:26px;line-height:1.1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .prof-id span{font-size:13px;color:var(--wool-dim)}
@@ -211,3 +209,80 @@ html{background:var(--wood)}
 .prof-acc p{margin:0;font-size:14px;line-height:1.45;color:var(--wool-dim);max-width:60ch}
 .prof-acc input{padding:12px 14px;border-radius:10px;border:1px solid var(--line);background:rgba(20,10,4,.55);color:var(--wool);font:inherit}
 @media (max-width:360px){.stats{grid-template-columns:repeat(2,1fr)}}
+
+/* ---------- аватарки ---------- */
+.ava{display:inline-flex;align-items:center;justify-content:center;flex:none;width:28px;height:28px;border-radius:50%;
+  background:#5a4a40;color:var(--card);font-weight:700;font-size:13px;border:2px solid rgba(247,242,232,.85);box-shadow:0 2px 4px rgba(0,0,0,.35)}
+.ava svg{width:62%;height:62%}
+.ava.sm{width:22px;height:22px;font-size:11px;border-width:1.5px}
+.ava.lg{width:60px;height:60px;font-size:28px;border-width:3px;font-family:var(--display);font-weight:400}
+.ava-btn{background:none;border:none;padding:0;position:relative;flex:none}
+.ava-btn::after{content:"\270E";position:absolute;right:-4px;bottom:-2px;width:20px;height:20px;border-radius:50%;background:var(--brass);color:var(--ink);font-size:12px;display:flex;align-items:center;justify-content:center}
+.prof-pick{display:flex;flex-direction:column;gap:8px;padding:12px;border-radius:12px;background:rgba(20,10,4,.55);border:1px solid var(--line)}
+.prof-pick[hidden]{display:none}
+.pick-row{display:flex;flex-wrap:wrap;gap:8px}
+.pick{background:none;border:2px solid transparent;border-radius:50%;padding:3px}
+.pick .ava.sm{width:34px;height:34px}
+.pick.on{border-color:var(--brass)}
+.pick.col{width:34px;height:34px;border-color:rgba(247,242,232,.5)}
+.pick.col.on{border-color:var(--brass);box-shadow:0 0 0 2px var(--brass)}
+.seat-top .ava.sm{width:20px;height:20px}
+.lobby-seats .ava.sm{width:30px;height:30px}
+
+/* ---------- профиль: разделы ---------- */
+.sect{margin:6px 0 0;font-family:var(--display);font-weight:400;font-size:20px;color:var(--wool)}
+.sect small{font-family:var(--body);font-size:13px;color:var(--wool-dim);margin-left:6px}
+.achs{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+.ach{display:grid;grid-template-columns:auto 1fr;column-gap:8px;row-gap:2px;padding:10px;border-radius:12px;border:1px solid var(--line);background:rgba(20,10,4,.4);opacity:.55;min-width:0}
+.ach i{grid-row:span 2;font-style:normal;font-size:20px;color:var(--wool-dim);line-height:1.1}
+.ach b{font-size:14px;line-height:1.2}
+.ach span{font-size:12px;line-height:1.3;color:var(--wool-dim)}
+.ach.on{opacity:1;border-color:rgba(217,173,85,.55);background:rgba(60,35,10,.55)}
+.ach.on i{color:var(--brass)}
+.rivals{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.rivals li{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:12px;border:1px solid var(--line);background:rgba(20,10,4,.5);font-size:14px}
+.rivals li b{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rivals li span{color:var(--wool-dim);font-size:12px;font-variant-numeric:tabular-nums}
+.rivals li .vs{font-size:16px;font-weight:700;color:var(--wool)}
+.rivals li .vs.up{color:#9fd3a4}
+.rivals li .vs.down{color:#f0a7b1}
+.rivals li.empty{color:var(--wool-dim);border-style:dashed}
+.seg.two{grid-template-columns:1fr 1fr}
+.backrow{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center}
+.backprev{position:relative;width:46px;height:56px}
+.backprev .back{position:absolute;width:36px;height:50px;border-radius:5px}
+.backprev .back:first-child{left:0;top:4px;transform:rotate(-8deg)}
+.backprev .back:last-child{left:10px;top:0;transform:rotate(6deg)}
+
+/* ---------- столы ---------- */
+body.t-veranda{
+  background-color:#2a3644;
+  background-image:
+    radial-gradient(75% 55% at 50% 40%, rgba(220,235,255,.14) 0%, rgba(0,0,0,0) 62%),
+    radial-gradient(140% 100% at 50% 42%, rgba(0,0,0,0) 50%, rgba(235,245,255,.28) 100%),
+    repeating-linear-gradient(0deg, rgba(255,255,255,.07) 0 26px, rgba(0,0,0,0) 26px 52px),
+    repeating-linear-gradient(90deg, rgba(255,255,255,.07) 0 26px, rgba(0,0,0,0) 26px 52px);
+}
+body.t-felt{
+  background-color:#1d4a35;
+  background-image:
+    radial-gradient(75% 55% at 50% 40%, rgba(255,240,200,.14) 0%, rgba(0,0,0,0) 62%),
+    radial-gradient(140% 100% at 50% 42%, rgba(0,0,0,0) 45%, rgba(0,0,0,.6) 100%),
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 .07 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+  box-shadow:inset 0 0 0 10px #5b3a22,inset 0 0 0 12px #2e1d11;
+}
+body.t-felt #decor .doily{display:none}
+html:has(body.t-veranda){background:#2a3644}
+html:has(body.t-felt){background:#1d4a35}
+
+/* ---------- рубашки ---------- */
+body.b-khokhloma .back,body.b-khokhloma .fan i{
+  background-color:#1a110a;
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24'><rect width='24' height='24' fill='%231a110a'/><path d='M3 12c4-7 8 7 12 0s8 7 12 0' stroke='%23d9a43a' stroke-width='1.3' fill='none'/><circle cx='9' cy='7' r='2.3' fill='%23c8202f'/><circle cx='21' cy='17' r='2.3' fill='%23c8202f'/><circle cx='9' cy='7' r='.8' fill='%23f0c060'/><circle cx='21' cy='17' r='.8' fill='%23f0c060'/></svg>");
+  border-color:#d9a43a;
+}
+body.b-gzhel .back,body.b-gzhel .fan i{
+  background-color:#f4f7fb;
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='22' height='22'><rect width='22' height='22' fill='%23f4f7fb'/><circle cx='11' cy='11' r='3.2' fill='%232a4f9c'/><path d='M11 2.5c2 2.2 2 3.8 0 5.2-2-1.4-2-3 0-5.2zM11 19.5c2-2.2 2-3.8 0-5.2-2 1.4-2 3 0 5.2zM2.5 11c2.2-2 3.8-2 5.2 0-1.4 2-3 2-5.2 0zM19.5 11c-2.2-2-3.8-2-5.2 0 1.4 2 3 2 5.2 0z' fill='%234a74c4'/></svg>");
+  border-color:#2a4f9c;
+}

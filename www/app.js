@@ -32,7 +32,9 @@ const NET={role:'local',code:null,lobby:null,presence:{},pub:null,hand:[],lastV:
 function lsGet(k){try{return JSON.parse(localStorage.getItem(k)||'null');}catch(e){return null;}}
 function lsSet(k,v){try{v==null?localStorage.removeItem(k):localStorage.setItem(k,JSON.stringify(v));}catch(e){}}
 const ui={bots:2,mode:'bots',score:false,confirmNew:false,flash:'',lastPile:0,known:new Set(),fx:[],hold:new Set(),
-  sound:lsGet('valenok-sound-on')!==false,sim:false,timer:20,exit:false,lastSec:null,gsel:[]};
+  sound:lsGet('valenok-sound-on')!==false,sim:false,timer:20,exit:false,lastSec:null,gsel:[],
+  level:lsGet('valenok-level')||'normal',vibro:lsGet('valenok-vibro')!==false,table:lsGet('valenok-table')||'izba',back:lsGet('valenok-back')||'cranberry',
+  ava:lsGet('valenok-ava')||{i:5,c:0},ptab:'all'};
 
 const P=i=>G.players[i];
 const topCard=()=>G.pile[G.pile.length-1];
@@ -79,7 +81,7 @@ function draw(pi,k){
   let got=0;
   for(let i=0;i<k;i++){if(!G.deck.length)refill();if(!G.deck.length)break;P(pi).hand.push(G.deck.pop());got++;}
   if(!P(pi).bot)sortHand(P(pi).hand);
-  if(got){ui.fx.push({t:'draw',pi,n:got});emit({t:'draw',pi,n:got});if(pi===ME)bump('drawn',got);}
+  if(got){ui.fx.push({t:'draw',pi,n:got});emit({t:'draw',pi,n:got});if(pi===ME){bump('drawn',got);bump('maxHand',P(ME).hand.length);}}
   return got;
 }
 function penal(i,k){
@@ -89,16 +91,16 @@ function penal(i,k){
 }
 
 /* ================= Ход игры (у хозяина или в игре с ботами) ================= */
-function mkPlayer(o){return {name:o.name,bot:!!o.bot,uid:o.uid||null,online:true,hand:[],score:0,skips:0};}
+function mkPlayer(o){return {name:o.name,bot:!!o.bot,uid:o.uid||null,ava:o.ava||botAva(o.name),online:true,hand:[],score:0,skips:0};}
 function newGame(players,timerSec){
   G={timer:timerSec,deadline:null,n:players.length,players:players.map(mkPlayer),
      deck:[],pile:[],namedSuit:null,eightOwner:null,suitBy:null,cur:0,dealer:Math.random()*players.length|0,
-     phase:'play',drew:false,sel:[],round:0,log:[],result:null};
+     phase:'play',drew:false,sel:[],round:0,log:[],result:null,level:ui.level,voids:{}};
   ui.known=new Set();deal();
 }
 function deal(){
   G.deck=newDeck();G.pile=[];G.namedSuit=null;G.eightOwner=null;G.suitBy=null;G.round++;G.phase='play';G.result=null;G.sel=[];G.drew=false;
-  G.players.forEach(p=>{p.hand=[];p.skips=0});
+  G.players.forEach(p=>{p.hand=[];p.skips=0});G.voids={};
   ui.fx=[];ui.hold.clear();snd('shuffle');
   for(let k=0;k<6;k++)for(let j=1;j<=G.n;j++)P((G.dealer+j)%G.n).hand.push(G.deck.pop());
   G.players.forEach(p=>sortHand(p.hand));
@@ -122,12 +124,12 @@ function setSuit(s,pi,blind){
 function beginTurn(){
   const p=P(G.cur);
   if(p.skips>0){
-    p.skips--;log(`${p.name} пропускает ход`);snd('skip');
+    p.skips--;log(`${p.name} пропускает ход`);snd('skip');if(G.cur===ME)buzz('skip');
     G.cur=nextOf(G.cur);G.deadline=null;render();schedule(beginTurn,650);return;
   }
   G.drew=false;G.sel=[];startClock();render();
   const c=ctrl(G.cur);
-  if(c==='bot')schedule(botTurn,850);else if(c==='me')sfx('turn');
+  if(c==='bot')schedule(botTurn,850);else if(c==='me'){sfx('turn');buzz('turn');}
 }
 function playFrom(pi,seq){
   if(ui.sim||RM)return [];
@@ -140,6 +142,7 @@ function doPlay(pi,seq){
   else sfx('card');
   emit({t:'play',pi,cards:seq.slice()});
   for(const c of seq){p.hand.splice(p.hand.findIndex(x=>x.id===c.id),1);G.pile.push(c);}
+  if(G.voids&&G.voids[pi])G.voids[pi]=G.voids[pi].filter(su=>!seq.some(c=>c.s===su));
   G.namedSuit=null;G.sel=[];
   const last=seq[seq.length-1];
   log(`${p.name}: ${seq.map(ctxt).join(' ')}`);
@@ -182,7 +185,7 @@ function applyAction(pi,a){
     doPlay(pi,seq);
   }else if(a.t==='draw'){
     if(G.phase!=='play'||G.cur!==pi||G.drew||legal(pi).length)return;
-    const got=draw(pi,1);G.drew=true;log(got?`${P(pi).name} берёт карту`:'Карт в колоде нет');render();
+    markVoid(pi);const got=draw(pi,1);G.drew=true;log(got?`${P(pi).name} берёт карту`:'Карт в колоде нет');render();
   }else if(a.t==='pass'){
     if(G.phase!=='play'||G.cur!==pi||!G.drew)return;
     pass(pi);
@@ -261,16 +264,27 @@ function nextRound(){G.dealer=nextOf(G.dealer);deal();}
 function rematch(){G.players.forEach(p=>p.score=0);G.round=0;G.dealer=Math.random()*G.n|0;deal();}
 
 /* ================= Боты ================= */
+const lvl=pi=>P(pi).bot?(G.level||'normal'):'normal';
+// Запоминаем, какой масти у игрока нет: он брал карту, потому что нечем было ходить
+function markVoid(pi){
+  if(!G.voids)G.voids={};
+  const t=topCard(),su=t.r==='Q'?G.namedSuit:t.s;if(!su)return;
+  const v=G.voids[pi]||[];if(!v.includes(su))v.push(su);G.voids[pi]=v;
+}
+const voidOf=(pi,su)=>!!(G.voids&&G.voids[pi]&&G.voids[pi].includes(su));
 function botSuit(pi){
-  const cnt={S:0,C:0,D:0,H:0};
+  const L=lvl(pi);
+  if(L==='easy')return SUITS[Math.random()*4|0];
+  const cnt={S:0,C:0,D:0,H:0},nx=nextOf(pi);
   P(pi).hand.forEach(c=>{if(c.r!=='Q')cnt[c.s]+=1+val(c)/20;});
+  if(L==='hard')for(const s of SUITS)if(cnt[s]>0&&voidOf(nx,s))cnt[s]+=2.5;  // заказать то, чего нет у следующего
   let best=SUITS[Math.random()*4|0],b=-1;
   for(const s of SUITS)if(cnt[s]>b){b=cnt[s];best=s;}
   return best;
 }
-function orderRest(h,first,rest){
+function orderRest(h,first,rest,pi){
   const remain=h.filter(x=>x.r!==first.r);
-  const cnt=s=>remain.filter(x=>x.s===s).length;
+  const cnt=s=>remain.filter(x=>x.s===s).length+(pi!=null&&lvl(pi)==='hard'&&voidOf(nextOf(pi),s)?3:0);
   let r=[...rest];
   if(first.r==='K'){const kh=r.find(isKH);if(kh){r=r.filter(x=>x!==kh);r.push(kh);return r;}}
   r.sort((a,b)=>cnt(a.s)-cnt(b.s));     // сверху — масть, которой больше всего на руке
@@ -278,10 +292,11 @@ function orderRest(h,first,rest){
 }
 function scoreSeq(pi,seq){
   const h=P(pi).hand,last=seq[seq.length-1],after=h.length-seq.length;
-  const sum=seq.reduce((a,c)=>a+val(c),0);
+  const sum=seq.reduce((a,c)=>a+val(c),0),hard=lvl(pi)==='hard';
   if(after===0&&last.r!=='8')return 10000+(last.r==='Q'?sum:0)+(isKH(last)?50:0);
-  const danger=P(nextOf(pi)).hand.length<=2?2:1;
-  let s=sum*.6+seq.length*4;
+  const nxc=P(nextOf(pi)).hand.length;
+  const danger=nxc<=2?(hard?3:2):1;
+  let s=sum*(hard?.8:.6)+seq.length*4;
   if(last.r==='6')s+=10*seq.length*danger;
   if(last.r==='7')s+=16*seq.length*danger;
   if(last.r==='A')s+=8*seq.length*danger;
@@ -291,19 +306,33 @@ function scoreSeq(pi,seq){
     const remain=h.filter(x=>!seq.includes(x));
     s+=remain.some(x=>x.s===last.s||x.r==='Q'||x.r==='8')?6:-25;
   }
+  if(hard){
+    const remain=h.filter(x=>!seq.includes(x));
+    // дам бережём на конец раунда: выйти дамой — это минус очки
+    if(last.r==='Q'&&remain.length&&h.some(x=>x.r!=='Q'&&canStart(x)))s-=60;
+    if(remain.length&&remain.every(x=>x.r==='Q'))s+=45;
+    // следующему игроку нечем будет крыть эту масть
+    if(last.r!=='Q'&&voidOf(nextOf(pi),last.s))s+=14;
+  }
   return s;
 }
 function bestMove(pi){
   const h=P(pi).hand,starts=h.filter(canStart);
   if(!starts.length)return null;
+  const L=lvl(pi);
+  if(L==='easy'){                         // лёгкий: случайная подходящая карта, редко пачкой
+    const c=starts[Math.random()*starts.length|0];
+    const rest=h.filter(x=>x.r===c.r&&x.id!==c.id);
+    return rest.length&&Math.random()<.3?[c,...rest]:[c];
+  }
   const cands=[];
   for(const c of starts){
     cands.push([c]);
     const rest=h.filter(x=>x.r===c.r&&x.id!==c.id);
-    if(rest.length)cands.push([c,...orderRest(h,c,rest)]);
+    if(rest.length)cands.push([c,...orderRest(h,c,rest,pi)]);
   }
   let best=null,bs=-1e9;
-  for(const seq of cands){const s=scoreSeq(pi,seq)+Math.random()*3;if(s>bs){bs=s;best=seq;}}
+  for(const seq of cands){const s=scoreSeq(pi,seq)+Math.random()*(L==='hard'?1:3);if(s>bs){bs=s;best=seq;}}
   return best;
 }
 function botTurn(){
@@ -311,7 +340,7 @@ function botTurn(){
   const pi=G.cur,p=P(pi);if(ctrl(pi)!=='bot')return;
   const mv=bestMove(pi);
   if(!mv){
-    if(!G.drew){draw(pi,1);G.drew=true;log(`${p.name} берёт карту`);render();schedule(botTurn,700);return;}
+    if(!G.drew){markVoid(pi);draw(pi,1);G.drew=true;log(`${p.name} берёт карту`);render();schedule(botTurn,700);return;}
     pass(pi);return;
   }
   doPlay(pi,mv);
@@ -438,6 +467,7 @@ function flyer(html,at){
 const center=r=>[r.left+r.width/2,r.top+r.height/2];
 function runFx(){
   const list=ui.fx;ui.fx=[];
+  if(list.some(f=>f.t==='shake'&&f.pi===ME))buzz('hit');
   if(RM||ui.sim){ui.hold.clear();document.querySelectorAll('#pile [data-hold]').forEach(e=>e.style.visibility='');return;}
   let drawDelay=0;
   for(const f of list){
@@ -511,7 +541,7 @@ function sfx(kind){
 function rot(id){let h=0;for(const ch of id)h=(h*31+ch.charCodeAt(0))%997;return (h%15)-7;}
 function esc(s){return String(s).replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));}
 
-function showScreen(id){for(const s of ['setup','lobby','app','profile'])$(s).hidden=s!==id;if(id!=='app')$('overlay').hidden=true;}
+function showScreen(id){keepAwake(id==='app'||id==='lobby');for(const s of ['setup','lobby','app','profile'])$(s).hidden=s!==id;if(id!=='app')$('overlay').hidden=true;}
 let prevPhase=null;
 function render(){
   if(!G)return;
@@ -528,7 +558,7 @@ function renderSeats(){
     const i=(ME+k)%G.n,p=P(i);
     const away=!p.bot&&p.online===false;
     h+=`<div class="seat ${G.cur===i&&G.phase==='play'?'turn':''}" data-seat="${i}">
-      <div class="seat-top"><span class="seat-name">${esc(p.name)}</span>${!p.bot&&NET.role!=='local'?`<i class="dot ${away?'off':''}" title="${away?'не в сети':'в сети'}"></i>`:''}${i===G.dealer?'<span class="chip">сдаёт</span>':''}</div>
+      <div class="seat-top">${avaHTML(p.ava,p.name,'sm')}<span class="seat-name">${esc(p.name)}</span>${!p.bot&&NET.role!=='local'?`<i class="dot ${away?'off':''}" title="${away?'не в сети':'в сети'}"></i>`:''}${i===G.dealer?'<span class="chip">сдаёт</span>':''}</div>
       <div class="seat-mid"><div class="fan">${'<i></i>'.repeat(Math.min(p.hand.length,7))}</div><b class="cnt">${p.hand.length}</b></div>
       <div class="seat-score">${p.score} очк.</div>
       <div class="badges">${away?'<span class="chip">играет бот</span>':''}${p.skips?`<span class="chip warn">пропуск${p.skips>1?' ×'+p.skips:''}</span>`:''}${G.eightOwner===i?'<span class="chip gold">кроет 8</span>':''}</div>
@@ -670,11 +700,12 @@ window.addEventListener('pagehide',()=>{stashClock();save();});
 
 /* ================= Статистика игрока ================= */
 // Приращения копятся на телефоне (работает и без интернета) и складываются в облако.
-const PEND_KEY='valenok-stats-pending', CLOUD_KEY='valenok-stats-cloud';
+const PEND_KEY='valenok-stats-pending', CLOUD_KEY='valenok-stats-cloud', RIV_PEND='valenok-rivals-pending', RIV_CLOUD='valenok-rivals-cloud', ACH_KEY='valenok-ach';
+const MAXK=new Set(['maxHand','bestStreak']);
 const statMode=()=>NET.role==='local'?'bots':'online';
 function addInto(dst,src){
   for(const [k,v] of Object.entries(src||{})){
-    if(k==='bestMinus')dst[k]=Math.min(dst[k]??0,v);else dst[k]=(dst[k]||0)+v;
+    if(k==='bestMinus')dst[k]=Math.min(dst[k]??0,v);else if(MAXK.has(k))dst[k]=Math.max(dst[k]||0,v);else dst[k]=(dst[k]||0)+v;
   }
   return dst;
 }
@@ -682,6 +713,7 @@ function bump(k,v=1){
   if(ui.sim||!v)return;
   const P=lsGet(PEND_KEY)||{},m=statMode();
   P[m]=addInto(P[m]||{},{[k]:v});lsSet(PEND_KEY,P);
+  checkAch();
 }
 function roundStats(r){
   if(!r||!r.rows||ui.sim)return;
@@ -692,24 +724,45 @@ function roundStats(r){
   if(r.over){
     const sc=rows.map(x=>x.after),lo=Math.min(...sc),hi=Math.max(...sc);
     add.games=1;
-    if(me.after===lo)add.wins=1;
+    const won=me.after===lo;
+    if(won)add.wins=1;
     if(me.after===hi&&hi>100)add.valenki=1;
+    const st=won?(lsGet('valenok-streak')||0)+1:0;lsSet('valenok-streak',st);add.bestStreak=st;
+    // личные встречи с живыми соперниками
+    if(NET.role!=='local'&&G){
+      const RV=lsGet(RIV_PEND)||{};
+      G.players.forEach((p,i)=>{
+        if(i===ME||p.bot||!p.uid||!rows[i])return;
+        const o=RV[p.uid]||{games:0,w:0,l:0};
+        o.name=p.name;o.ava=p.ava||null;o.games++;
+        if(me.after<rows[i].after)o.w++;else if(me.after>rows[i].after)o.l++;
+        RV[p.uid]=o;
+      });
+      lsSet(RIV_PEND,RV);
+    }
   }
   const P=lsGet(PEND_KEY)||{},m=statMode();P[m]=addInto(P[m]||{},add);lsSet(PEND_KEY,P);
-  flushStats();
+  checkAch();flushStats();
 }
-let flushing=false;
-async function flushStats(){
-  const P=lsGet(PEND_KEY);
-  if(flushing||!P||!Object.keys(P).length)return;
-  flushing=true;lsSet(PEND_KEY,null);
+// Одна отправка за раз; кто пришёл во время отправки — ждёт её и отправляет остаток
+let flushP=null;
+function flushStats(){
+  if(flushP)return flushP.then(()=>lsGet(PEND_KEY)?flushStats():null);
+  flushP=doFlush().finally(()=>{flushP=null;});
+  return flushP;
+}
+async function doFlush(){
+  await flushExtras();
+  const P=lsGet(PEND_KEY)||{};       // читаем прямо перед отправкой, чтобы ничего не потерять
+  if(!Object.keys(P).length)return;
+  lsSet(PEND_KEY,null);
   try{
     await N.addStats(P,myName()||null);
-    const C=lsGet(CLOUD_KEY)||{};for(const m of Object.keys(P))C[m]=addInto(C[m]||{},P[m]);lsSet(CLOUD_KEY,C);
   }catch(e){
     const now=lsGet(PEND_KEY)||{};for(const m of Object.keys(P))now[m]=addInto(now[m]||{},P[m]);lsSet(PEND_KEY,now);
+    return;
   }
-  flushing=false;
+  try{lsSet(CLOUD_KEY,await N.getStats());}catch(e){}  // свежие цифры с сервера
 }
 
 /* ================= Экран профиля ================= */
@@ -731,13 +784,161 @@ function fmtStat(k,s){
   if(k==='bestMinus')return v?`−${-v}`:'—';
   return `${v}`;
 }
+/* ---------- аватарки ---------- */
+const AVA_ICONS=[
+  '<use href="#s-H" x="4" y="4" width="16" height="16"/>',
+  '<use href="#s-S" x="4" y="4" width="16" height="16"/>',
+  '<use href="#s-D" x="4" y="4" width="16" height="16"/>',
+  '<use href="#s-C" x="4" y="4" width="16" height="16"/>',
+  '<path d="M4 17h16l-1.4-8.5-4.1 3.6L12 5.5l-2.5 6.6-4.1-3.6z"/><rect x="4" y="18" width="16" height="2" rx="1"/>',
+  '<path d="M8 3h6v10c0 1.3.9 2 2.3 2.3l2.1.4c1.6.3 2.3 1.4 2 2.6-.3.9-1.2 1.7-2.4 1.7H8.4C7.1 20 6 19.1 6 17.8V5c0-1.1.9-2 2-2z"/>',
+  '<path d="M12 3l2.6 5.8 6.4.6-4.8 4.3 1.4 6.3L12 16.8 6.4 20l1.4-6.3L3 9.4l6.4-.6z"/>',
+  '<path d="M12 2v20M3.3 7l17.4 10M3.3 17L20.7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/><path d="M9.5 3.5L12 6l2.5-2.5M9.5 20.5L12 18l2.5 2.5" stroke="currentColor" stroke-width="1.6" fill="none"/>',
+  '<circle cx="12" cy="12" r="7" fill="none" stroke="currentColor" stroke-width="4.5"/>',
+  '<path d="M5 8h11v7a4 4 0 0 1-4 4H9a4 4 0 0 1-4-4z"/><path d="M16 10h1.5a2.5 2.5 0 0 1 0 5H16" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 3.5c-1 1.2 1 1.8 0 3M11.5 3.5c-1 1.2 1 1.8 0 3" fill="none" stroke="currentColor" stroke-width="1.3"/>',
+  '<path d="M4 4l4.2 4h7.6L20 4v9.5a8 8 0 0 1-16 0z"/><circle cx="9" cy="13" r="1.3" fill="#1f1b1a"/><circle cx="15" cy="13" r="1.3" fill="#1f1b1a"/>',
+  '<circle cx="12" cy="12" r="4.5"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>'];
+const AVA_COLS=['#b3263a','#2b5aa8','#2f5d3a','#c0702a','#6b3fa0','#1f1b1a','#8a5a2b','#2f7f86'];
+function cleanAva(a){return a&&Number.isInteger(a.i)&&Number.isInteger(a.c)&&AVA_ICONS[a.i]&&AVA_COLS[a.c]?{i:a.i,c:a.c}:null;}
+function botAva(name){const k={'Миша':{i:10,c:6},'Оля':{i:0,c:4},'Петрович':{i:9,c:2}}[name];return k||{i:4,c:5};}
+function avaHTML(a,name,size){
+  a=cleanAva(a);
+  if(!a)return `<span class="ava ${size||''}">${esc(String(name||'?').slice(0,1).toUpperCase())}</span>`;
+  return `<span class="ava ${size||''}" style="background:${AVA_COLS[a.c]}"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">${AVA_ICONS[a.i]}</svg></span>`;
+}
+
+/* ---------- вибрация, «Назад», экран не гаснет ---------- */
+const Cap=window.Capacitor;
+const native=()=>!!(Cap&&Cap.isNativePlatform&&Cap.isNativePlatform());
+const plug=n=>native()&&Cap.Plugins?Cap.Plugins[n]:null;
+function buzz(kind){
+  if(!ui.vibro||ui.sim)return;
+  try{
+    const H=plug('Haptics');
+    if(H){if(kind==='turn')H.impact({style:'LIGHT'});else H.vibrate({duration:kind==='hit'?280:120});}
+    else if(navigator.vibrate)navigator.vibrate(kind==='turn'?30:kind==='hit'?[60,40,140]:70);
+  }catch(e){}
+}
+let wakeLock=null;ui.awake=false;
+async function keepAwake(on){
+  if(ui.awake===on)return;ui.awake=on;
+  try{
+    const K=plug('KeepAwake');
+    if(K){if(on)await K.keepAwake();else await K.allowSleep();return;}
+    if(on&&'wakeLock' in navigator){wakeLock=await navigator.wakeLock.request('screen');}
+    else if(!on&&wakeLock){await wakeLock.release();wakeLock=null;}
+  }catch(e){}
+}
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&ui.awake&&!plug('KeepAwake')){ui.awake=false;keepAwake(true);}});
+let lobbyBackAt=0;
+function onBack(){
+  if(!$('profile').hidden){showSetup();return;}
+  if(!$('lobby').hidden){
+    if(Date.now()-lobbyBackAt<2500){leaveGame();return;}
+    lobbyBackAt=Date.now();netMsg('Нажмите «Назад» ещё раз, чтобы выйти из комнаты.','lobbyMsg');return;
+  }
+  if(!$('app').hidden&&G){
+    if(ui.exit){ui.exit=false;render();return;}
+    if(ui.score){ui.score=false;render();return;}
+    if((G.phase==='suit'&&G.suitBy===ME)||(G.phase==='blind'&&G.dealer===ME))return;
+    ui.exit=true;render();return;
+  }
+  const A=plug('App');if(A)A.exitApp();
+}
+{const A=plug('App');if(A)A.addListener('backButton',onBack);}
+
+/* ---------- приглашение ---------- */
+const WEB_URL='https://v0lera.github.io/valenok/';
+const APK_URL='https://github.com/V0lera/valenok/releases/latest/download/Valenok.apk';
+async function invite(){
+  const url=`${WEB_URL}?room=${NET.code}`;
+  const text=`Давай сыграем в «Валенок»! Код комнаты: ${NET.code}\nОткрыть сразу в комнате: ${url}\nПриложение для Android: ${APK_URL}`;
+  try{
+    const S=plug('Share');
+    if(S){await S.share({title:'Валенок',text,dialogTitle:'Позвать друга'});return;}
+    if(navigator.share){await navigator.share({title:'Валенок',text});return;}
+    await navigator.clipboard.writeText(text);netMsg('Приглашение скопировано — вставьте его в чат с другом.','lobbyMsg');
+  }catch(e){
+    if(e&&(e.name==='AbortError'||/cancel/i.test(e.message||'')))return;
+    netMsg(`Скажите другу код комнаты: ${NET.code}`,'lobbyMsg');
+  }
+}
+
+/* ---------- достижения ---------- */
+const ACH=[
+  ['first_game','Первая партия','Сыграть партию до конца',s=>s.games>=1],
+  ['first_win','Первая победа','Закончить партию с наименьшим счётом',s=>s.wins>=1],
+  ['valenok','Сам ты валенок','Проиграть партию — с кем не бывает',s=>s.valenki>=1],
+  ['games10','Завсегдатай','Сыграть 10 партий',s=>s.games>=10],
+  ['games50','Ветеран избы','Сыграть 50 партий',s=>s.games>=50],
+  ['streak3','Три подряд','Выиграть 3 партии подряд',s=>s.bestStreak>=3],
+  ['streak5','Неудержимый','Выиграть 5 партий подряд',s=>s.bestStreak>=5],
+  ['lady','Дамский угодник','Закончить раунд дамой или королём червей',s=>s.minusCount>=1],
+  ['minus50','Королевский уход','Уйти в минус на 50 одним ходом',s=>(s.bestMinus||0)<=-50],
+  ['minus90','Минус девяносто','Уйти в минус на 90 одним ходом',s=>(s.bestMinus||0)<=-90],
+  ['reset','С чистого листа','Набрать ровно 100 и обнулиться',s=>s.resets>=1],
+  ['kh10','Щедрый король','Дать соперникам +5 десять раз',s=>s.khGiven>=10],
+  ['hand15','Обжора','Держать на руке 15 карт',s=>s.maxHand>=15],
+  ['online_win','Лучший среди друзей','Выиграть партию онлайн',(s,o)=>o.wins>=1]];
+function checkAch(){
+  if(ui.sim)return;
+  const got=lsGet(ACH_KEY)||{},all=statsView('all'),on=statsView('online'),fresh=[];
+  for(const [id,title,,test] of ACH)if(!got[id]&&test(all,on)){got[id]=Date.now();fresh.push(id);}
+  if(!fresh.length)return;
+  lsSet(ACH_KEY,got);
+  const P=lsGet('valenok-ach-pending')||[];lsSet('valenok-ach-pending',[...P,...fresh]);
+  fresh.forEach((id,k)=>setTimeout(()=>{
+    const t=ACH.find(a=>a[0]===id)[1];
+    if(!$('app').hidden)toast(`Достижение: ${t}`);else netMsg(`Новое достижение: ${t}`,'profMsg');
+    sfx('suit');
+  },900+k*1900));
+}
+async function flushExtras(){
+  try{
+    const RV=lsGet(RIV_PEND);
+    if(RV&&Object.keys(RV).length){lsSet(RIV_PEND,null);try{await N.addRivals(RV);}catch(e){const n=lsGet(RIV_PEND)||{};for(const[k,v] of Object.entries(RV)){const o=n[k]||{games:0,w:0,l:0};o.name=v.name;o.ava=v.ava;o.games+=v.games;o.w+=v.w;o.l+=v.l;n[k]=o;}lsSet(RIV_PEND,n);throw e;}}
+    const A=lsGet('valenok-ach-pending');
+    if(A&&A.length){await N.setAch(A);lsSet('valenok-ach-pending',null);}
+    if(lsGet('valenok-ava-pending')){await N.setAvatar(ui.ava);lsSet('valenok-ava-pending',null);}
+  }catch(e){}
+}
+
+/* ---------- оформление ---------- */
+function applyTheme(){
+  const b=document.body;
+  b.classList.remove('t-izba','t-veranda','t-felt','b-cranberry','b-khokhloma','b-gzhel');
+  b.classList.add('t-'+ui.table,'b-'+ui.back);
+}
+
+/* ---------- экран профиля ---------- */
 function renderProfile(){
   const s=statsView(ui.ptab),mail=ui.pmail;
   const name=myName()||'Игрок';
-  $('profName').textContent=name;$('profAva').textContent=name.slice(0,1).toUpperCase();
+  $('profName').textContent=name;$('profAva').innerHTML=avaHTML(ui.ava,name,'lg');
   $('profSub').textContent=mail?`Профиль привязан к ${mail}`:'Профиль на этом телефоне';
   document.querySelectorAll('#profTabs button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.m===ui.ptab));
   $('profStats').innerHTML=STAT_ROWS.map(([k,l])=>`<div class="stat ${['wins','valenki','bestMinus'].includes(k)?'key':''}"><b>${fmtStat(k,s)}</b><span>${l}</span></div>`).join('');
+  // аватарка
+  $('profPick').hidden=!ui.pick;
+  if(ui.pick)$('profPick').innerHTML=`<div class="pick-row">${AVA_ICONS.map((_,i)=>`<button class="pick ${ui.ava.i===i?'on':''}" data-act="pava" data-i="${i}" aria-label="Значок ${i+1}">${avaHTML({i,c:ui.ava.c},'','sm')}</button>`).join('')}</div>
+    <div class="pick-row">${AVA_COLS.map((c,k)=>`<button class="pick col ${ui.ava.c===k?'on':''}" data-act="pcol" data-c="${k}" style="background:${c}" aria-label="Цвет ${k+1}"></button>`).join('')}</div>`;
+  // друзья
+  const RV=addRivals(lsGet(RIV_CLOUD)||{},lsGet(RIV_PEND)||{});
+  const list=Object.values(RV).sort((a,b)=>b.games-a.games);
+  $('profRivals').innerHTML=list.length?list.map(r=>`<li>${avaHTML(r.ava,r.name,'sm')}<b>${esc(r.name||'Игрок')}</b><span>${r.games} ${plural(r.games,'партия','партии','партий')}</span><span class="vs ${r.w>r.l?'up':r.w<r.l?'down':''}">${r.w} : ${r.l}</span></li>`).join('')
+    :'<li class="empty">Сыграйте онлайн с друзьями — здесь появится счёт ваших встреч.</li>';
+  // достижения
+  const got=lsGet(ACH_KEY)||{};
+  $('profAch').innerHTML=ACH.map(([id,t,d])=>`<div class="ach ${got[id]?'on':''}"><i aria-hidden="true">${got[id]?'★':'☆'}</i><b>${t}</b><span>${d}</span></div>`).join('');
+  $('profAchN').textContent=`${Object.keys(got).filter(k=>ACH.some(a=>a[0]===k)).length} из ${ACH.length}`;
+  // настройки
+  const seg=(act,cur,opts)=>opts.map(([v,l])=>`<button data-act="${act}" data-v="${v}" aria-pressed="${cur===v}">${l}</button>`).join('');
+  $('setTable').innerHTML=seg('stable',ui.table,[['izba','Изба'],['veranda','Веранда'],['felt','Сукно']]);
+  $('setBack').innerHTML=seg('sback',ui.back,[['cranberry','Клюква'],['khokhloma','Хохлома'],['gzhel','Гжель']]);
+  $('setLevel').innerHTML=seg('slevel',ui.level,[['easy','Лёгкие'],['normal','Обычные'],['hard','Хитрые']]);
+  $('setVibro').innerHTML=seg('svibro',ui.vibro?'on':'off',[['on','Вибрация: вкл'],['off','выкл']]);
+  $('backPreview').innerHTML='<div class="back"></div><div class="back"></div>';
+  // почта
   $('profAcc').innerHTML=mail
     ?`<p>Войдите с этой почтой на другом телефоне, и статистика будет там же.</p>
       <button class="btn" data-act="plogout">Выйти из профиля</button>`
@@ -746,11 +947,19 @@ function renderProfile(){
       <input type="password" id="pPw" placeholder="пароль, от 6 символов" autocomplete="current-password">
       <div class="row"><button class="btn" data-act="plogin">Войти</button><button class="btn primary" data-act="plink">Привязать</button></div>`;
 }
+function addRivals(a,b){const o=JSON.parse(JSON.stringify(a||{}));for(const[k,v] of Object.entries(b||{})){const r=o[k]||{games:0,w:0,l:0};r.name=v.name||r.name;r.ava=v.ava||r.ava;r.games+=v.games||0;r.w+=v.w||0;r.l+=v.l||0;o[k]=r;}return o;}
+function plural(n,a,b,c){const m=n%10,h=n%100;return m===1&&h!==11?a:m>=2&&m<=4&&(h<10||h>=20)?b:c;}
+async function loadProfile(){
+  const pr=await N.getProfile();
+  lsSet(CLOUD_KEY,pr.stats);lsSet(RIV_CLOUD,pr.rivals);
+  const got=lsGet(ACH_KEY)||{};for(const k of Object.keys(pr.ach||{}))got[k]=got[k]||pr.ach[k];lsSet(ACH_KEY,got);
+  if(pr.avatar&&cleanAva(pr.avatar)&&!lsGet('valenok-ava-pending')){ui.ava=cleanAva(pr.avatar);lsSet('valenok-ava',ui.ava);}
+  ui.pmail=N.email();
+}
 async function openProfile(){
-  ui.ptab=ui.ptab||'all';showScreen('profile');renderProfile();netMsg('Обновляем…','profMsg');
+  ui.ptab=ui.ptab||'all';ui.pick=false;showScreen('profile');renderProfile();netMsg('Обновляем…','profMsg');
   try{
-    await flushStats();
-    lsSet(CLOUD_KEY,await N.getStats());ui.pmail=N.email();
+    await flushStats();await loadProfile();checkAch();
     renderProfile();netMsg('','profMsg');
   }catch(e){netMsg(N.errText(e)+' Показаны данные, сохранённые на телефоне.','profMsg');}
 }
@@ -759,22 +968,46 @@ async function profAuth(kind){
   if(kind!=='out'&&(!mail||!pw)){netMsg('Введите почту и пароль.','profMsg');return;}
   netMsg('Подождите…','profMsg');
   try{
+    const reset=()=>{for(const k of [CLOUD_KEY,RIV_CLOUD,ACH_KEY,HOST_KEY,GUEST_KEY,'valenok-streak'])lsSet(k,null);};
     if(kind==='link')await N.linkEmail(mail,pw);
-    else if(kind==='in'){await flushStats();await N.signInEmail(mail,pw);lsSet(CLOUD_KEY,null);lsSet(HOST_KEY,null);lsSet(GUEST_KEY,null);}
-    else{await flushStats();await N.signOutToAnon();lsSet(CLOUD_KEY,null);lsSet(HOST_KEY,null);lsSet(GUEST_KEY,null);}
-    lsSet(CLOUD_KEY,await N.getStats());ui.pmail=N.email();renderProfile();
+    else if(kind==='in'){await flushStats();await N.signInEmail(mail,pw);reset();}
+    else{await flushStats();await N.signOutToAnon();reset();}
+    await loadProfile();renderProfile();
     netMsg(kind==='link'?'Готово: профиль привязан к почте.':kind==='in'?'Вы вошли в профиль.':'Вы вышли. На телефоне начат новый профиль.','profMsg');
   }catch(e){netMsg(N.authErrText(e),'profMsg');}
 }
+function saveAva(){lsSet('valenok-ava',ui.ava);lsSet('valenok-ava-pending',true);renderProfile();flushStats();}
 Object.assign(ACTS,{
   profile(){openProfile();},
   pback(){showSetup();},
   ptab(el){ui.ptab=el.dataset.m;renderProfile();},
   plink(){profAuth('link');},
   plogin(){profAuth('in');},
-  plogout(){profAuth('out');}
+  plogout(){profAuth('out');},
+  pavatar(){ui.pick=!ui.pick;renderProfile();},
+  pava(el){ui.ava={i:+el.dataset.i,c:ui.ava.c};saveAva();},
+  pcol(el){ui.ava={i:ui.ava.i,c:+el.dataset.c};saveAva();},
+  stable(el){ui.table=el.dataset.v;lsSet('valenok-table',ui.table);applyTheme();renderProfile();},
+  sback(el){ui.back=el.dataset.v;lsSet('valenok-back',ui.back);applyTheme();renderProfile();},
+  slevel(el){ui.level=el.dataset.v;lsSet('valenok-level',ui.level);syncLevel();if(!$('profile').hidden)renderProfile();},
+  svibro(el){ui.vibro=el.dataset.v==='on';lsSet('valenok-vibro',ui.vibro);if(ui.vibro)buzz('turn');renderProfile();},
+  invite(){invite();}
 });
-setTimeout(()=>{if(lsGet(PEND_KEY))flushStats();},3000);
+function syncLevel(){document.querySelectorAll('#setupLevel button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.v===ui.level));}
+syncLevel();
+applyTheme();
+setTimeout(()=>{if(lsGet(PEND_KEY)||lsGet(RIV_PEND)||lsGet('valenok-ach-pending')||lsGet('valenok-ava-pending'))flushStats();},3000);
+// Ссылка-приглашение: …/valenok/?room=1234
+{
+  const rq=new URLSearchParams(location.search).get('room');
+  if(rq&&/^\d{4}$/.test(rq)){
+    history.replaceState(null,'',location.pathname);
+    setTimeout(()=>{
+      ACTS.mode(document.querySelector('#modeSeg [data-m="friends"]'));$('codeIn').value=rq;
+      if(myName())guestJoin(rq);else{netMsg('Вас позвали в комнату '+rq+'. Введите имя и нажмите «Войти».');$('nameIn').focus();}
+    },0);
+  }
+}
 
 /* ================= Игра с друзьями ================= */
 function netMsg(m,id='netMsg'){$(id).textContent=m||'';}
@@ -784,8 +1017,8 @@ async function hostCreate(){
   const name=myName()||'Хозяин';lsSet('valenok-name',myName());
   busy(true);netMsg('Создаём комнату…');
   try{
-    const code=await N.createRoom(name,ui.timer);
-    NET.role='host';NET.code=code;ME=0;NET.lobby={seats:[{uid:N.net.uid,name,kind:'human'}],timer:ui.timer};
+    const code=await N.createRoom(name,ui.timer,ui.ava);
+    NET.role='host';NET.code=code;ME=0;NET.lobby={seats:[{uid:N.net.uid,name,ava:ui.ava,kind:'human'}],timer:ui.timer};
     lsSet(HOST_KEY,{code,G:null,at:Date.now()});
     hostSubscribe();renderLobby();netMsg('');
   }catch(e){netMsg(N.errText(e));}
@@ -797,7 +1030,7 @@ function hostSubscribe(){
     N.del(`rooms/${code}/joins/${uid}`).catch(()=>{});
     const L=NET.lobby;if(!L||G)return;
     if(L.seats.some(s=>s.uid===uid)||L.seats.length>=4)return;
-    L.seats.push({uid,name:String(v&&v.name||'Игрок').slice(0,14)||'Игрок',kind:'human'});
+    L.seats.push({uid,name:String(v&&v.name||'Игрок').slice(0,14)||'Игрок',ava:cleanAva(v&&v.ava),kind:'human'});
     sfx('join');N.write(`rooms/${code}/seats`,L.seats);renderLobby();
   });
   N.watch(`rooms/${code}/presence`,v=>{
@@ -820,7 +1053,7 @@ function hostSubscribe(){
 function lobbyAddBot(){
   const L=NET.lobby;if(!L||L.seats.length>=4)return;
   const used=new Set(L.seats.map(s=>s.name));const name=BOT_NAMES.find(n=>!used.has(n))||'Бот';
-  L.seats.push({kind:'bot',name});N.write(`rooms/${NET.code}/seats`,L.seats);renderLobby();
+  L.seats.push({kind:'bot',name,ava:botAva(name)});N.write(`rooms/${NET.code}/seats`,L.seats);renderLobby();
 }
 function lobbyRemove(i){
   const L=NET.lobby;if(!L||i<=0||!L.seats[i])return;
@@ -833,7 +1066,7 @@ async function hostStart(){
   await N.write(`rooms/${NET.code}/status`,'playing').catch(()=>{});
 }
 function newGameOnline(seats){
-  const pl=seats.map(s=>({name:s.name,bot:s.kind==='bot',uid:s.uid}));
+  const pl=seats.map(s=>({name:s.name,bot:s.kind==='bot',uid:s.uid,ava:s.ava}));
   newGame(pl,NET.lobby.timer);
   G.players.forEach((p,i)=>{if(!p.bot&&i!==ME)p.online=!!NET.presence[p.uid];});
 }
@@ -848,14 +1081,15 @@ function renderLobby(){
     if(!s){h+=`<li class="empty">Свободное место</li>`;continue;}
     const me=s.uid&&s.uid===N.net.uid,on=s.kind==='bot'||!!NET.presence[s.uid];
     const tag=s.kind==='bot'?'бот':i===0?'хозяин':me?'вы':'';
-    h+=`<li>${s.kind==='bot'?'':`<i class="dot ${on?'':'off'}"></i>`}<b>${esc(s.name)}${me&&i!==0?' (вы)':''}</b><span class="chip">${tag||'игрок'}</span>${host&&i>0?`<button class="x" data-act="kick" data-i="${i}" aria-label="Убрать">×</button>`:''}</li>`;
+    h+=`<li>${avaHTML(s.ava,s.name,'sm')}${s.kind==='bot'?'':`<i class="dot ${on?'':'off'}"></i>`}<b>${esc(s.name)}${me&&i!==0?' (вы)':''}</b><span class="chip">${tag||'игрок'}</span>${host&&i>0?`<button class="x" data-act="kick" data-i="${i}" aria-label="Убрать">×</button>`:''}</li>`;
   }
   $('lobbySeats').innerHTML=h;
   $('lobbyBtns').innerHTML=host
-    ?`<button class="btn" data-act="addbot" ${L.seats.length>=4?'disabled':''}>Добавить бота</button>
+    ?`<button class="btn primary" data-act="invite">Позвать друга</button>
+      <button class="btn" data-act="addbot" ${L.seats.length>=4?'disabled':''}>Добавить бота</button>
       <button class="btn primary" data-act="begin" ${L.seats.length<2?'disabled':''}>Начать игру (${L.seats.length})</button>
       <button class="btn" data-act="lobbyleave">Закрыть комнату</button>`
-    :`<button class="btn" data-act="lobbyleave">Выйти из комнаты</button>`;
+    :`<button class="btn" data-act="invite">Позвать ещё друга</button><button class="btn" data-act="lobbyleave">Выйти из комнаты</button>`;
 }
 let pubQueued=false;
 function queuePublish(){if(pubQueued)return;pubQueued=true;setTimeout(publish,0);}
@@ -865,7 +1099,7 @@ function publish(){
   const pub={n:G.n,round:G.round,dealer:G.dealer,cur:G.cur,phase:G.phase,namedSuit:G.namedSuit,eightOwner:G.eightOwner,
     suitBy:G.suitBy,drew:G.drew,timer:G.timer,deadline:G.deadline,pile:G.pile.slice(-4),deckLen:G.deck.length,
     log:G.log.slice(-4),result:G.result,
-    players:G.players.map(p=>({name:p.name,score:p.score,skips:p.skips,count:p.hand.length,bot:p.bot,uid:p.uid,online:p.online}))};
+    players:G.players.map(p=>({name:p.name,score:p.score,skips:p.skips,count:p.hand.length,bot:p.bot,uid:p.uid,online:p.online,ava:p.ava||null}))};
   const s=JSON.stringify(pub);
   const upd={};
   if(s!==NET.pubCache||NET.ev.length){
@@ -885,7 +1119,7 @@ async function guestJoin(code,silent){
   const name=myName()||'Игрок';lsSet('valenok-name',myName());
   busy(true);netMsg('Подключаемся…');
   try{
-    const room=await N.joinRoom(code,name);
+    const room=await N.joinRoom(code,name,ui.ava);
     NET.role='guest';NET.code=code;NET.hostUid=room.host;NET.lobby={seats:room.seats||[],timer:room.timer};
     NET.pub=null;NET.hand=[];NET.lastV=-1;NET.firstPub=true;ui.gsel=[];G=null;
     lsSet(GUEST_KEY,{code,at:Date.now()});
@@ -921,7 +1155,7 @@ function guestApply(){
     const first=NET.lastV<0;NET.lastV=pub.v;
     if(!first&&G)for(const e of pub.ev||[]){
       if(e.t==='play'&&e.pi===me){bump('thrown',e.cards.reduce((a,c)=>a+val(c),0));if(isKH(e.cards[e.cards.length-1])&&NET.hand.length)bump('khGiven');}
-      if(e.t==='draw'&&e.pi===me)bump('drawn',e.n);
+      if(e.t==='draw'&&e.pi===me){bump('drawn',e.n);bump('maxHand',NET.hand.length);}
       if(e.t==='play'){
         const from=e.pi===me?e.cards.map(c=>{const el=document.querySelector(`#hand [data-cid="${c.id}"]`);return el?el.getBoundingClientRect():null;}):(()=>{const s=seatEl(e.pi);const r=s?s.getBoundingClientRect():null;return e.cards.map(()=>r);})();
         if(!RM){ui.fx.push({t:'play',pi:e.pi,cards:e.cards,from});e.cards.forEach(c=>ui.hold.add(c.id));}else sfx('card');
@@ -940,7 +1174,7 @@ function guestApply(){
   if(G.result&&!Array.isArray(G.result.rows))G.result.rows=Object.values(G.result.rows||{});
   ui.gsel=ui.gsel.filter(id=>hand.some(c=>c.id===id));
   if(NET.firstPub){NET.firstPub=false;prevPhase=G.phase;}  // зашли посреди итогов раунда — не считаем его повторно
-  if(!wasMyTurn&&G.phase==='play'&&G.cur===ME)sfx('turn');
+  if(!wasMyTurn&&G.phase==='play'&&G.cur===ME){sfx('turn');buzz('turn');}
   render();
   if(NET.hostAway)$('status').textContent='Хозяин комнаты отключился — ждём его возвращения…';
 }

@@ -61,14 +61,14 @@ async function presence(code) {
   });
 }
 
-export async function createRoom(name, timer) {
+export async function createRoom(name, timer, ava) {
   await init();
   for (let i = 0; i < 25; i++) {
     const code = String(1000 + Math.floor(Math.random() * 9000));
     const res = await fb.D.runTransaction(R('rooms/' + code), cur => {
       if (cur) return; // занято — пробуем другой код
       return { host: fb.uid, created: Date.now(), status: 'lobby', timer,
-               seats: [{ uid: fb.uid, name, kind: 'human' }] };
+               seats: [{ uid: fb.uid, name, ava: ava || null, kind: 'human' }] };
     });
     if (res.committed) { net.code = code; await presence(code); return code; }
   }
@@ -76,7 +76,7 @@ export async function createRoom(name, timer) {
 }
 
 // Вход по коду. Возвращает снимок комнаты.
-export async function joinRoom(code, name) {
+export async function joinRoom(code, name, ava) {
   await init();
   const snap = await fb.D.get(R('rooms/' + code));
   if (!snap.exists()) throw new Error('Комнаты с таким кодом нет.');
@@ -87,7 +87,7 @@ export async function joinRoom(code, name) {
   if (room.host === fb.uid) throw new Error('Это ваша комната: вернитесь в неё кнопкой «Вернуться в комнату».');
   if (room.status !== 'lobby' && mine < 0) throw new Error('В этой комнате игра уже началась.');
   if (room.status === 'lobby' && mine < 0 && seats.length >= 4) throw new Error('Комната заполнена: в ней уже 4 игрока.');
-  if (mine < 0) await fb.D.set(R(`rooms/${code}/joins/${fb.uid}`), { name, at: Date.now() });
+  if (mine < 0) await fb.D.set(R(`rooms/${code}/joins/${fb.uid}`), { name, ava: ava || null, at: Date.now() });
   net.code = code;
   await presence(code);
   return room;
@@ -115,12 +115,40 @@ export async function addStats(pending, name) {
       const s = cur || {};
       for (const [k, v] of Object.entries(add)) {
         if (k === 'bestMinus') s[k] = Math.min(s[k] ?? 0, v);
+        else if (MAXK.has(k)) s[k] = Math.max(s[k] || 0, v);
         else s[k] = (s[k] || 0) + v;
       }
       return s;
     });
   }
   if (name) await fb.D.set(R(`users/${fb.uid}/name`), name);
+}
+const MAXK = new Set(['maxHand', 'bestStreak']);
+// Личные встречи с друзьями: users/<я>/rivals/<друг>
+export async function addRivals(rivals) {
+  await init();
+  for (const [rid, r] of Object.entries(rivals || {})) {
+    await fb.D.runTransaction(R(`users/${fb.uid}/rivals/${rid}`), cur => {
+      const s = cur || {};
+      s.name = r.name || s.name || 'Игрок';
+      if (r.ava) s.ava = r.ava;
+      for (const k of ['games', 'w', 'l']) s[k] = (s[k] || 0) + (r[k] || 0);
+      s.last = Date.now();
+      return s;
+    });
+  }
+}
+export async function setAch(ids) {
+  await init();
+  const u = {}; for (const id of ids) u[`users/${fb.uid}/ach/${id}`] = Date.now();
+  if (ids.length) await fb.D.update(fb.D.ref(fb.db), u);
+}
+export async function setAvatar(ava) { await init(); await fb.D.set(R(`users/${fb.uid}/avatar`), ava); }
+export async function getProfile() {
+  await init();
+  const s = await fb.D.get(R(`users/${fb.uid}`));
+  const v = s.val() || {};
+  return { stats: v.stats || {}, rivals: v.rivals || {}, ach: v.ach || {}, avatar: v.avatar || null };
 }
 export async function getStats() {
   await init();
