@@ -34,7 +34,8 @@ function lsSet(k,v){try{v==null?localStorage.removeItem(k):localStorage.setItem(
 const ui={bots:2,mode:'bots',score:false,confirmNew:false,flash:'',lastPile:0,known:new Set(),fx:[],hold:new Set(),
   sound:lsGet('valenok-sound-on')!==false,sim:false,timer:20,exit:false,lastSec:null,gsel:[],
   level:lsGet('valenok-level')||'normal',vibro:lsGet('valenok-vibro')!==false,table:lsGet('valenok-table')||'izba',back:lsGet('valenok-back')||'cranberry',
-  ava:lsGet('valenok-ava')||{i:5,c:0},ptab:'all'};
+  ava:lsGet('valenok-ava')||{i:5,c:0},ptab:'all',music:lsGet('valenok-music')!==false,bigCards:!!lsGet('valenok-big'),
+  dealUntil:0,flipAt:0,hintAt:0,modalAt:0,animRound:null,curScreen:null};
 
 const P=i=>G.players[i];
 const topCard=()=>G.pile[G.pile.length-1];
@@ -86,6 +87,7 @@ function draw(pi,k){
 }
 function penal(i,k){
   const got=draw(i,k);P(i).skips++;
+  {const e={t:'big',pi:i,text:'+'+got};ui.fx.push(e);emit(e);}
   ui.fx.push({t:'shake',pi:i});emit({t:'shake',pi:i});setTimeout(()=>snd('penalty'),150);
   say(`${P(i).name}: +${got} и пропуск хода`);
 }
@@ -105,6 +107,7 @@ function deal(){
   for(let k=0;k<6;k++)for(let j=1;j<=G.n;j++)P((G.dealer+j)%G.n).hand.push(G.deck.pop());
   G.players.forEach(p=>sortHand(p.hand));
   ui.known=new Set(P(ME).hand.map(c=>c.id));ui.lastPile=0;
+  {const order=[];for(let k=0;k<6;k++)for(let j=1;j<=G.n;j++)order.push((G.dealer+j)%G.n);ui.fx.push({t:'deal',order});emit({t:'deal',order});ui.dealUntil=Date.now()+order.length*55+450;ui.flipAt=ui.dealUntil;}
   const c=G.deck.pop();G.pile.push(c);
   const d=G.dealer,nx=nextOf(d);
   log(`Раунд ${G.round}. Сдаёт ${P(d).name}, открыта ${ctxt(c)}`);
@@ -119,17 +122,19 @@ function deal(){
 }
 function setSuit(s,pi,blind){
   G.namedSuit=s;
+  {const e={t:'suit',s};ui.fx.push(e);emit(e);}
   say(`${P(pi).name} заказывает ${SYM[s]} ${SNAME[s]}${blind?' (вслепую)':''}`);snd('suit');
 }
 function beginTurn(){
   const p=P(G.cur);
   if(p.skips>0){
     p.skips--;log(`${p.name} пропускает ход`);snd('skip');if(G.cur===ME)buzz('skip');
+    {const e={t:'skip',pi:G.cur};ui.fx.push(e);emit(e);}
     G.cur=nextOf(G.cur);G.deadline=null;render();schedule(beginTurn,650);return;
   }
   G.drew=false;G.sel=[];startClock();render();
   const c=ctrl(G.cur);
-  if(c==='bot')schedule(botTurn,850);else if(c==='me'){sfx('turn');buzz('turn');}
+  if(c==='bot')schedule(botTurn,850);else if(c==='me'){sfx('turn');buzz('turn');ui.hintAt=Date.now();}
 }
 function playFrom(pi,seq){
   if(ui.sim||RM)return [];
@@ -158,7 +163,7 @@ function doPlay(pi,seq){
   if(last.r==='6')penal(nx,k);
   else if(last.r==='7')penal(nx,2*k);
   else if(isKH(last))penal(nx,5);
-  else if(last.r==='K'&&seq.some(isKH))say('Король червей отменён');
+  else if(last.r==='K'&&seq.some(isKH)){say('Король червей отменён');const e={t:'crown'};ui.fx.push(e);emit(e);}
   else if(last.r==='A'){
     let i=pi;const names=[];
     for(let j=0;j<k;j++){i=nextOf(i);if(i===pi)i=nextOf(i);P(i).skips++;names.push(P(i).name);}
@@ -246,7 +251,7 @@ function endRound(wi,seq){
     const d=i===wi?bonus:p.hand.reduce((a,c)=>a+val(c),0);
     let after=p.score+d,reset=false;
     if(after===100){after=0;reset=true;}
-    const r={name:p.name,cards:p.hand.map(ctxt).join(' '),d,before:p.score,after,reset};
+    const r={name:p.name,cards:p.hand.map(ctxt).join(' '),list:p.hand.map(c=>({r:c.r,s:c.s,id:c.id})),d,before:p.score,after,reset};
     p.score=after;return r;
   });
   const over=G.players.some(p=>p.score>100);
@@ -497,6 +502,7 @@ function runFx(){
         setTimeout(()=>sfx('draw'),drawDelay);drawDelay+=110;
         a.onfinish=()=>el.remove();setTimeout(()=>el.remove(),drawDelay+500);
       }
+    }else if(['deal','big','skip','suit','crown'].includes(f.t)){runExtraFx(f);
     }else if(f.t==='shake'){
       const el=f.pi===ME?$('handWrap'):seatEl(f.pi);
       if(el){el.classList.remove('shake');void el.offsetWidth;el.classList.add('shake');el.addEventListener('animationend',()=>el.classList.remove('shake'),{once:true});}
@@ -535,19 +541,24 @@ function sfx(kind){
     case 'shuffle':for(let i=0;i<7;i++)swish(ctx,t+i*.045,2600+i*150,.06,.5);break;
     case 'join':[660,880].forEach((f,i)=>tone(ctx,f,t+i*.08,.18,'sine',.07));break;
     case 'win':[523,659,784,1047].forEach((f,i)=>tone(ctx,f,t+i*.1,.32,'triangle',.11));break;
+    case 'thud':tone(ctx,70,t,.45,'sine',.35);tone(ctx,48,t+.02,.5,'sine',.3);swish(ctx,t,320,.18,.6);break;
+    case 'buzz':for(let i=0;i<5;i++)tone(ctx,210+Math.random()*40,t+i*.09,.12,'sawtooth',.012);break;
     case 'lose':[392,330,262,196].forEach((f,i)=>tone(ctx,f,t+i*.15,.38,'triangle',.11));break;
   }
 }
 function rot(id){let h=0;for(const ch of id)h=(h*31+ch.charCodeAt(0))%997;return (h%15)-7;}
 function esc(s){return String(s).replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));}
 
-function showScreen(id){keepAwake(id==='app'||id==='lobby');setTimeout(()=>statusNow&&statusNow(),0);for(const s of ['setup','lobby','app','profile','friendsScr','settingsScr'])$(s).hidden=s!==id;if(id!=='app')$('overlay').hidden=true;}
+function showScreen(id){
+  if(ui.curScreen!==id&&!RM){const el=$(id);el.classList.remove('enter','enter-back');void el.offsetWidth;el.classList.add(id==='setup'&&ui.curScreen?'enter-back':'enter');}
+  ui.curScreen=id;
+  keepAwake(id==='app'||id==='lobby');setTimeout(()=>statusNow&&statusNow(),0);for(const s of ['setup','lobby','app','profile','friendsScr','settingsScr'])$(s).hidden=s!==id;if(id!=='app')$('overlay').hidden=true;}
 let prevPhase=null;
 function render(){
   if(!G)return;
   showScreen('app');
   $('roundLbl').textContent=NET.code?`Раунд ${G.round} · комната ${NET.code}`:`Раунд ${G.round}`;
-  if((G.phase==='round'||G.phase==='over')&&prevPhase!==G.phase){endSound();roundStats(G.result);}
+  if((G.phase==='round'||G.phase==='over')&&prevPhase!==G.phase){endSound();roundStats(G.result);finaleFx();}
   prevPhase=G.phase;
   renderSeats();renderTable();renderHand();renderStatus();renderModal();updateClock();save();runFx();
   if(NET.role==='host')queuePublish();
@@ -571,7 +582,9 @@ function renderTable(){
   const show=G.pile.slice(-4);const grew=G.pile.length!==ui.lastPile;
   pile.innerHTML=show.map((c,k)=>{
     const held=ui.hold.has(c.id);
-    return `<div data-hold="${c.id}" style="position:absolute;inset:0;transform:rotate(${rot(c.id)}deg)${held?';visibility:hidden':''}">${cardHTML(c,(k===show.length-1&&grew&&!held&&G.pile.length===1)?'fresh':'')}</div>`;
+    const topc=k===show.length-1,flip=topc&&G.pile.length===1&&Date.now()<ui.flipAt;
+    const glow=topc&&c.r==='8'&&G.eightOwner!=null&&G.phase==='play';
+    return `<div data-hold="${c.id}" class="${glow?'glow8':''}" style="position:absolute;inset:0;transform:rotate(${rot(c.id)}deg)${held?';visibility:hidden':''}">${cardHTML(c,flip?'flipin':(topc&&grew&&!held&&G.pile.length===1)?'fresh':'',flip?'':'').replace('class="card','style="--d:'+Math.max(0,ui.flipAt-Date.now())+'ms" class="card')}</div>`;
   }).join('');
   ui.lastPile=G.pile.length;
   $('deckN').textContent=`${G.deck.length} в колоде`;
@@ -585,12 +598,15 @@ function renderHand(){
   const mine=myTurn(),s=sel();
   if(G.phase==='blind'&&G.dealer===ME){el.innerHTML='<div class="back"></div>'.repeat(hand.length);fitHand();return;}
   const first=s.length?byId(s[0]):null;
-  el.innerHTML=hand.map(c=>{
-    let cls='';
-    if(mine){const ok=first?c.r===first.r:canStart(c);cls=ok?'ok':'dim';}
+  const dealing=Date.now()<ui.dealUntil,hinting=mine&&!s.length&&Date.now()-ui.hintAt<700;
+  const off=(ME-G.dealer-1+G.n)%G.n;
+  el.innerHTML=hand.map((c,i)=>{
+    let cls='',st='';
+    if(mine){const ok=first?c.r===first.r:canStart(c);cls=ok?'ok':'dim';if(ok&&hinting){cls+=' hint';st=`--h:${i*45}ms;`;}}
     const k=s.indexOf(c.id);if(k>=0)cls+=' sel';
-    if(!ui.known.has(c.id))cls+=' fresh';
-    return `<button class="cardbtn" data-act="card" data-id="${c.id}" aria-label="${ctxt(c)}" style="all:unset;flex:none;position:relative">${cardHTML(c,cls,k>=0&&s.length>1?`<span class="ord">${k+1}</span>`:'')}</button>`;
+    if(dealing){cls+=' dealt';st+=`--d:${Math.max(0,(i*G.n+off)*55+300-(ui.dealUntil-450-Date.now()<0?0:0))}ms;`;}
+    else if(!ui.known.has(c.id))cls+=' fresh';
+    return `<button class="cardbtn" data-act="card" data-id="${c.id}" aria-label="${ctxt(c)}" style="all:unset;flex:none;position:relative;${st}">${cardHTML(c,cls,k>=0&&s.length>1?`<span class="ord">${k+1}</span>`:'')}</button>`;
   }).join('');
   ui.known=new Set(hand.map(c=>c.id));
   fitHand();
@@ -655,7 +671,7 @@ function renderModal(){
     h=`<h2>${r.over?`Валенок — ${esc(P(loserIdx).name)}!`:`${esc(w.name)} ${r.wi===ME?'выиграли':'выиграл'} раунд`}</h2>
       <p>Последний ход: ${r.finish}${r.rows[r.wi].d<0?` — минус ${-r.rows[r.wi].d} очков`:''}.</p>
       <table class="score"><thead><tr><th>Игрок</th><th>За раунд</th><th>Итого</th></tr></thead><tbody>
-      ${r.rows.map(x=>`<tr><td>${esc(x.name)}${x.cards?`<small>${x.cards}</small>`:''}</td><td class="${x.d<0?'neg':''}">${x.d>0?'+':''}${x.d}</td><td class="${x.after>100?'lose':''}">${x.after}${x.reset?'<small>ровно 100 — обнуление</small>':''}</td></tr>`).join('')}
+      ${r.rows.map((x,i)=>`<tr data-i="${i}"><td>${esc(x.name)}${(x.list&&x.list.length)?`<div class="minis">${x.list.map(c=>cardHTML(c,'mini')).join('')}</div>`:(x.cards?`<small>${x.cards}</small>`:'')}</td><td class="${x.d<0?'neg':''}" data-d="${x.d}">${x.d>0?'+':''}${x.d}</td><td class="${x.after>100?'lose':''}" data-a="${x.after}" data-b="${x.before}">${x.after}${x.reset?'<small>ровно 100 — обнуление</small>':''}</td></tr>`).join('')}
       </tbody></table>${btn}`;
   }
   else if(ui.exit){
@@ -669,7 +685,9 @@ function renderModal(){
     h=`<h2>Счёт</h2>${scoreTable()}<details class="memo" open>${MEMO}</details>
       <div class="row">${online?'':`<button class="btn" data-act="newgame">${ui.confirmNew?'Точно? Счёт сбросится':'Новая игра'}</button>`}<button class="btn primary" data-act="close">Вернуться</button></div>`;
   }
+  if((G.phase==='round'||G.phase==='over')&&Date.now()<ui.modalAt&&!ui.exit&&!ui.score)h='';   // сначала падает валенок
   ov.hidden=!h;if(h)sh.innerHTML=h;
+  if(h&&(G.phase==='round'||G.phase==='over'))animateScores();
 }
 
 /* ================= Сохранение ================= */
@@ -938,6 +956,8 @@ function renderSettings(){
   $('setLevel').innerHTML=seg('slevel',ui.level,[['easy','Лёгкие'],['normal','Обычные'],['hard','Хитрые']]);
   $('setSound').innerHTML=seg('ssound',ui.sound?'on':'off',[['on','Включён'],['off','Выключен']]);
   $('setVibro').innerHTML=seg('svibro',ui.vibro?'on':'off',[['on','Включена'],['off','Выключена']]);
+  $('setMusic').innerHTML=seg('smusic',ui.music?'on':'off',[['on','Включена'],['off','Выключена']]);
+  $('setBig').innerHTML=seg('sbig',ui.bigCards?'on':'off',[['off','Обычные'],['on','Крупные']]);
   $('backPreview').innerHTML='<div class="back"></div><div class="back"></div>';
   const mail=ui.pmail;
   $('profAcc').innerHTML=mail
@@ -996,6 +1016,8 @@ Object.assign(ACTS,{
   sback(el){ui.back=el.dataset.v;lsSet('valenok-back',ui.back);applyTheme();renderSettings();},
   slevel(el){ui.level=el.dataset.v;lsSet('valenok-level',ui.level);syncLevel();if(!$('settingsScr').hidden)renderSettings();},
   svibro(el){ui.vibro=el.dataset.v==='on';lsSet('valenok-vibro',ui.vibro);if(ui.vibro)buzz('turn');renderSettings();},
+  smusic(el){ui.music=el.dataset.v==='on';lsSet('valenok-music',ui.music);if(ui.music)musicStart();else musicStop();renderSettings();},
+  sbig(el){ui.bigCards=el.dataset.v==='on';lsSet('valenok-big',ui.bigCards);applyBig();renderSettings();},
   ssound(el){ui.sound=el.dataset.v==='on';lsSet('valenok-sound-on',ui.sound);$('sndBtn').setAttribute('aria-pressed',ui.sound);if(ui.sound)sfx('turn');renderSettings();},
   achall(){ui.achAll=!ui.achAll;renderProfile();},
   friends(){showScreen('friendsScr');netMsg('','friendsMsg');renderFriends();if(!SOC.started)startSocial().then(renderFriends);else{flushStats().then(()=>N.getProfile()).then(p=>{lsSet(RIV_CLOUD,p.rivals);renderFriends();}).catch(()=>{});}},
@@ -1335,7 +1357,7 @@ function guestApply(){
       if(e.t==='play'){
         const from=e.pi===me?e.cards.map(c=>{const el=document.querySelector(`#hand [data-cid="${c.id}"]`);return el?el.getBoundingClientRect():null;}):(()=>{const s=seatEl(e.pi);const r=s?s.getBoundingClientRect():null;return e.cards.map(()=>r);})();
         if(!RM){ui.fx.push({t:'play',pi:e.pi,cards:e.cards,from});e.cards.forEach(c=>ui.hold.add(c.id));}else sfx('card');
-      }else if(e.t==='draw'||e.t==='shake')ui.fx.push(e);
+      }else if(['draw','shake','deal','big','skip','suit','crown'].includes(e.t)){ui.fx.push(e);if(e.t==='deal'){ui.dealUntil=Date.now()+e.order.length*55+450;ui.flipAt=ui.dealUntil;ui.known=new Set();}}
       else if(e.t==='snd')sfx(e.n);
       else if(e.t==='toast')toast(e.m);
     }
@@ -1350,7 +1372,7 @@ function guestApply(){
   if(G.result&&!Array.isArray(G.result.rows))G.result.rows=Object.values(G.result.rows||{});
   ui.gsel=ui.gsel.filter(id=>hand.some(c=>c.id===id));
   if(NET.firstPub){NET.firstPub=false;prevPhase=G.phase;}  // зашли посреди итогов раунда — не считаем его повторно
-  if(!wasMyTurn&&G.phase==='play'&&G.cur===ME){sfx('turn');buzz('turn');}
+  if(!wasMyTurn&&G.phase==='play'&&G.cur===ME){sfx('turn');buzz('turn');ui.hintAt=Date.now();}
   render();
   if(NET.hostAway)$('status').textContent='Хозяин комнаты отключился — ждём его возвращения…';
 }
@@ -1437,6 +1459,238 @@ function matchesSVG(){
     <rect x="13" y="13" width="36" height="20" rx="1.5" fill="#b3263a"/><text x="31" y="26.5" text-anchor="middle" font-size="7" font-weight="700" fill="#f7f2e8" font-family="Golos Text,sans-serif" letter-spacing=".5">СПИЧКИ</text>
     ${match(8,52,48,47)}${match(22,59,60,56)}</svg>`;
 }
+
+/* ================= Анимации и украшения ================= */
+// элемент, который сам исчезнет после анимации
+function fxEl(cls,html,x,y,life=1400){
+  const el=document.createElement('div');el.className='fxa '+cls;el.innerHTML=html;
+  el.style.left=x+'px';el.style.top=y+'px';document.body.appendChild(el);
+  setTimeout(()=>el.remove(),life);return el;
+}
+function targetCenter(pi){
+  const el=pi===ME?$('handWrap'):seatEl(pi);if(!el)return null;
+  const r=el.getBoundingClientRect();return [r.left+r.width/2,r.top+r.height/2];
+}
+const SKIP_SVG='<svg viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="19" fill="rgba(20,10,4,.55)" stroke="currentColor" stroke-width="5"/><path d="M11 37L37 11" stroke="currentColor" stroke-width="5" stroke-linecap="round"/></svg>';
+const CROWN_SVG='<svg viewBox="0 0 64 48" aria-hidden="true"><path d="M6 40h52l-4-28-12 11L32 4 22 23 10 12z" fill="#e0b24a" stroke="#8a6420" stroke-width="2"/><circle cx="32" cy="27" r="4" fill="#b3263a"/><circle cx="18" cy="31" r="3" fill="#2b5aa8"/><circle cx="46" cy="31" r="3" fill="#2b5aa8"/></svg>';
+const BOOT_SVG='<svg viewBox="0 0 120 130" aria-hidden="true"><defs><linearGradient id="bootg" x1="0" x2="1"><stop offset="0" stop-color="#8d857d"/><stop offset=".55" stop-color="#a8a097"/><stop offset="1" stop-color="#776f67"/></linearGradient></defs><path fill="url(#bootg)" d="M14 4h44v62c0 9 6 13 16 15l18 4c12 2 17 10 14 19-2 7-8 9-17 9H24c-7 0-12-5-12-12z"/><rect x="11" y="2" width="50" height="13" rx="4" fill="#6f675f"/><path d="M15 33l7-5 7 5 7-5 7 5 7-5 7 5" fill="none" stroke="#b3263a" stroke-width="4" stroke-linejoin="round"/><path d="M15 40h44M15 26h44" stroke="#e9c234" stroke-width="2"/><path fill="#2a2420" d="M11 106h106c-1 8-8 11-18 11H24c-7 0-12-4-13-11z"/></svg>';
+
+// обработка новых эффектов из очереди ui.fx (вызывается из runFx)
+function runExtraFx(f){
+  if(f.t==='deal'){
+    const from=$('deck').getBoundingClientRect();const [fx,fy]=center(from);
+    f.order.forEach((pi,k)=>{
+      const tgt=pi===ME?$('handWrap'):seatEl(pi);if(!tgt)return;
+      const [tx,ty]=center(tgt.getBoundingClientRect());
+      const el=flyer('<div class="back" style="width:100%;height:100%;border-radius:8px"></div>',from);
+      const d=k*55;
+      const a=el.animate([{transform:'translate(0,0) rotate(0)',opacity:1},{transform:`translate(${tx-fx}px,${ty-fy}px) rotate(${pi===ME?0:-20}deg) scale(${pi===ME?.75:.32})`,opacity:pi===ME?.9:.2}],
+        {duration:330,delay:d,easing:'cubic-bezier(.3,.6,.3,1)',fill:'backwards'});
+      if(k%3===0)setTimeout(()=>sfx('draw'),d);
+      a.onfinish=()=>el.remove();setTimeout(()=>el.remove(),d+700);
+    });
+  }else if(f.t==='big'){
+    const c=targetCenter(f.pi);if(c)fxEl('bigfx',esc(f.text),c[0],c[1]-10,1500);
+  }else if(f.t==='skip'){
+    const c=targetCenter(f.pi);if(c)fxEl('skipfx',SKIP_SVG,c[0],c[1],1600);
+  }else if(f.t==='suit'){
+    const p=$('pile').getBoundingClientRect(),t=$('table').getBoundingClientRect();
+    const el=fxEl('suitfx '+(isRed(f.s)?'red':''),SYM[f.s],p.left+p.width/2,p.top+p.height/2,1500);
+    el.style.setProperty('--dy',(t.bottom-20-(p.top+p.height/2))+'px');
+  }else if(f.t==='crown'){
+    const p=$('pile').getBoundingClientRect();fxEl('crownfx',CROWN_SVG,p.left+p.width/2,p.top+p.height*.3,1500);
+  }
+}
+
+/* ---------- финал: конфетти и падающий валенок ---------- */
+function confetti(big){
+  if(RM)return;
+  const cols=['#d9ad55','#b3263a','#f7f2e8','#2b5aa8','#9fd3a4'];
+  const n=big?70:36;
+  for(let i=0;i<n;i++){
+    const el=document.createElement('i');el.className='confetti';
+    const snow=Math.random()<.35;
+    el.textContent=snow?'❄':'';
+    el.style.left=Math.random()*100+'vw';
+    el.style.background=snow?'none':cols[i%cols.length];
+    el.style.color=cols[(i+2)%cols.length];
+    el.style.animationDuration=(1.8+Math.random()*1.6)+'s';
+    el.style.animationDelay=(Math.random()*.6)+'s';
+    el.style.setProperty('--x',(Math.random()*120-60)+'px');
+    el.style.setProperty('--r',(Math.random()*720-360)+'deg');
+    document.body.appendChild(el);setTimeout(()=>el.remove(),4200);
+  }
+}
+function dropBoot(pi){
+  const c=targetCenter(pi);if(!c)return;
+  const el=fxEl('bootfx',BOOT_SVG,c[0],c[1],3200);
+  setTimeout(()=>{sfx('thud');buzz('hit');const s=pi===ME?$('handWrap'):seatEl(pi);if(s){s.classList.remove('shake');void s.offsetWidth;s.classList.add('shake');}},620);
+  return el;
+}
+// вызывается при переходе в итоги раунда / партии
+function finaleFx(){
+  const r=G.result;if(!r)return;
+  ui.animRound=null;
+  if(r.over){
+    const sc=r.rows.map(x=>x.after),hi=Math.max(...sc),lo=Math.min(...sc);
+    const loser=sc.indexOf(hi);
+    ui.modalAt=Date.now()+(RM?0:1900);
+    setTimeout(()=>dropBoot(loser),250);
+    if(r.rows[ME]&&r.rows[ME].after===lo)setTimeout(()=>confetti(true),1100);
+    setTimeout(()=>{if(G&&(G.phase==='over'))renderModal();},ui.modalAt-Date.now()+30);
+  }else if(r.wi===ME)confetti(false);
+}
+// живой подсчёт очков в окне итогов
+function animateScores(){
+  const key=G.round+':'+G.phase;
+  if(ui.animRound===key||RM)return;ui.animRound=key;
+  const rows=[...document.querySelectorAll('#sheet tr[data-i]')];
+  let t=150;
+  rows.forEach(tr=>{
+    const minis=[...tr.querySelectorAll('.card.mini')];
+    minis.forEach((m,k)=>{m.style.animationDelay=(t+k*90)+'ms';});
+    const dcell=tr.querySelector('[data-d]'),acell=tr.querySelector('[data-a]');
+    const start=t+minis.length*90+150;
+    countUp(dcell,0,+dcell.dataset.d,start,true);
+    countUp(acell,+acell.dataset.b,+acell.dataset.a,start+250,false);
+    t=start+350;
+  });
+}
+function countUp(el,from,to,delay,sign){
+  if(!el)return;
+  const fmt=v=>(sign&&v>0?'+':'')+v;
+  el.textContent=fmt(from);
+  setTimeout(()=>{
+    const t0=performance.now(),dur=650;
+    const step=now=>{const k=Math.min(1,(now-t0)/dur);el.textContent=fmt(Math.round(from+(to-from)*(1-Math.pow(1-k,3))));if(k<1)requestAnimationFrame(step);else if(to!==from)el.classList.add('bump');};
+    requestAnimationFrame(step);if(to!==from)sfx('tick');
+  },delay);
+}
+
+/* ---------- перетаскивание карты на стол ---------- */
+let drag=null,dragJustEnded=0;
+$('hand').addEventListener('pointerdown',e=>{
+  const btn=e.target.closest('.cardbtn');if(!btn||!myTurn())return;
+  drag={id:btn.dataset.id,btn,x:e.clientX,y:e.clientY,el:null,pid:e.pointerId};
+});
+window.addEventListener('pointermove',e=>{
+  if(!drag||e.pointerId!==drag.pid)return;
+  const dx=e.clientX-drag.x,dy=e.clientY-drag.y;
+  if(!drag.el){
+    if(dy>-14||Math.abs(dy)<Math.abs(dx))return;     // тянем вверх — значит бросаем карту
+    const c=byId(drag.id);if(!c)return;
+    const r=drag.btn.getBoundingClientRect();
+    drag.el=flyer(cardHTML(c,'dragging'),r);drag.r=r;drag.btn.style.visibility='hidden';
+  }
+  drag.el.style.transform=`translate(${dx}px,${dy}px) rotate(${dx/14}deg)`;
+  const t=$('table').getBoundingClientRect();
+  $('pile').classList.toggle('droptarget',e.clientY<t.bottom-10);
+});
+function endDrag(e){
+  if(!drag||(e&&e.pointerId!==drag.pid))return;
+  const d=drag;drag=null;$('pile').classList.remove('droptarget');
+  if(!d.el)return;
+  dragJustEnded=Date.now();
+  const t=$('table').getBoundingClientRect();
+  const over=e&&e.clientY<t.bottom-10;
+  const c=byId(d.id);
+  let seq=null;
+  if(over&&c&&myTurn()){
+    const s=sel();
+    if(s.includes(d.id)&&validSeq(s.map(byId)))seq=s.slice();
+    else if(canStart(c))seq=[d.id];
+  }
+  if(seq){
+    // карта уже «в руке у пальца»: убираем тень и отдаём ход движку (полёт начнётся с места пальца)
+    const r=d.el.getBoundingClientRect();d.el.remove();d.btn.style.visibility='';
+    d.btn.style.position='fixed';d.btn.style.left=r.left+'px';d.btn.style.top=r.top+'px';
+    act({t:'play',ids:seq});
+  }else{
+    if(over&&c)flash('Эту карту сюда положить нельзя');
+    const a=d.el.animate([{transform:d.el.style.transform},{transform:'translate(0,0)'}],{duration:220,easing:'ease-out'});
+    a.onfinish=()=>{d.el.remove();d.btn.style.visibility='';};setTimeout(()=>{d.el.remove();d.btn.style.visibility='';},400);
+  }
+}
+window.addEventListener('pointerup',endDrag);
+window.addEventListener('pointercancel',e=>{if(drag&&drag.el){drag.el.remove();drag.btn.style.visibility='';}drag=null;$('pile').classList.remove('droptarget');});
+// клик сразу после перетаскивания не считается выбором карты
+document.addEventListener('click',e=>{if(Date.now()-dragJustEnded<350&&e.target.closest('#hand')){e.stopImmediatePropagation();e.preventDefault();}},true);
+
+/* ---------- живой стол: кот, муха, лампа ---------- */
+const CAT_SVG='<svg viewBox="0 0 90 60" aria-hidden="true"><g class="catbody"><path d="M14 38c-9-2-12-12-8-20 2 6 6 10 13 11" fill="none" stroke="#2b2421" stroke-width="5" stroke-linecap="round" class="tail"/><ellipse cx="40" cy="36" rx="24" ry="12" fill="#2b2421"/><g class="legs"><rect x="22" y="40" width="5" height="16" rx="2.5" fill="#2b2421" class="l1"/><rect x="31" y="41" width="5" height="15" rx="2.5" fill="#2b2421" class="l2"/><rect x="47" y="41" width="5" height="15" rx="2.5" fill="#2b2421" class="l1"/><rect x="56" y="40" width="5" height="16" rx="2.5" fill="#2b2421" class="l2"/></g><circle cx="68" cy="26" r="11" fill="#2b2421"/><path d="M60 19l2-11 6 7zM76 19l-2-11-6 7z" fill="#2b2421"/><circle cx="72" cy="25" r="1.8" fill="#e9c234"/><circle cx="65" cy="25" r="1.8" fill="#e9c234"/></g></svg>';
+const FLY_SVG='<svg viewBox="0 0 20 14" aria-hidden="true"><ellipse cx="6" cy="4" rx="5" ry="3" fill="rgba(220,230,240,.7)" class="wing"/><ellipse cx="14" cy="4" rx="5" ry="3" fill="rgba(220,230,240,.7)" class="wing"/><ellipse cx="10" cy="8" rx="4" ry="5" fill="#141010"/></svg>';
+function easterEgg(){
+  if(RM||$('app').hidden||document.hidden){scheduleEgg();return;}
+  const d=$('decor');
+  if(Math.random()<.55){
+    const c=document.createElement('div');c.className='cat';c.innerHTML=CAT_SVG;d.appendChild(c);
+    setTimeout(()=>c.classList.add('sit'),6200);setTimeout(()=>c.classList.add('leave'),11000);setTimeout(()=>c.remove(),14500);
+  }else{
+    const f=document.createElement('div');f.className='fly';f.innerHTML=FLY_SVG;d.appendChild(f);
+    setTimeout(()=>sfx('buzz'),200);setTimeout(()=>f.remove(),12500);
+  }
+  scheduleEgg();
+}
+function scheduleEgg(){clearTimeout(scheduleEgg.t);scheduleEgg.t=setTimeout(easterEgg,(60+Math.random()*90)*1000);}
+scheduleEgg();
+{const l=document.createElement('div');l.id='lamp';l.setAttribute('aria-hidden','true');document.body.prepend(l);}
+
+/* ---------- заставка ---------- */
+function splash(){
+  if(RM||sessionStorage.getItem('valenok-splash'))return;
+  try{sessionStorage.setItem('valenok-splash','1');}catch(e){}
+  const word='ВАЛЕНОК';
+  const el=document.createElement('div');el.id='splash';
+  el.innerHTML=`<div class="sp-fan">${[...word].map((ch,i)=>{const a=(i-3)*7.4;return `<div class="sp-card" style="--a:${a}deg;--i:${i}"><div class="sp-in"><div class="sp-back back"></div><div class="sp-face ${i%2?'':'red'}"><span>${ch}</span></div></div></div>`;}).join('')}</div><p class="sp-sub">карточная игра</p>`;
+  document.body.appendChild(el);
+  const close=()=>{el.classList.add('out');setTimeout(()=>el.remove(),450);};
+  el.addEventListener('click',close);setTimeout(close,2700);
+}
+splash();
+
+/* ---------- музыка фоном (синтез, своя мелодия) ---------- */
+const MEL=[ // восьмые доли, 0 — пауза; ля минор
+  69,69,72,69,67,65,64,0, 65,67,69,67,65,64,62,0,
+  64,64,65,67,69,67,65,64, 62,64,65,64,62,60,57,0,
+  72,72,71,69,71,72,74,72, 71,69,68,69,71,69,68,64,
+  69,72,71,69,67,65,64,65, 64,62,60,62,64,0,57,0];
+const BASS=[45,50,40,45,45,40,50,45];          // по такту: Am Dm E Am Am E Dm Am
+const music={on:false,next:0,step:0,timer:null,gain:null};
+const midi=n=>440*Math.pow(2,(n-69)/12);
+function pluck(ctx,dst,f,t,dur,vol){
+  [0,4].forEach(det=>{
+    const o=ctx.createOscillator(),g=ctx.createGain();o.type='triangle';o.frequency.value=f;o.detune.value=det;
+    g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(vol,t+.008);g.gain.exponentialRampToValueAtTime(.0008,t+dur);
+    o.connect(g).connect(dst);o.start(t);o.stop(t+dur+.05);
+  });
+}
+function musicTick(){
+  const ctx=actx();if(!ctx||!music.on)return;
+  const eighth=60/100/2;
+  while(music.next<ctx.currentTime+.6){
+    const i=music.step%MEL.length,t=music.next;
+    if(MEL[i])pluck(ctx,music.gain,midi(MEL[i]),t,.32,.5);
+    if(MEL[i]&&i%2===0)pluck(ctx,music.gain,midi(MEL[i]),t+eighth*.5,.12,.18);   // балалаечное «тремоло»
+    const bar=Math.floor(i/8)%BASS.length,beat=i%8;
+    if(beat===0||beat===4)pluck(ctx,music.gain,midi(BASS[bar]),t,.45,.55);
+    if(beat===2||beat===6){pluck(ctx,music.gain,midi(BASS[bar]+12),t,.18,.22);pluck(ctx,music.gain,midi(BASS[bar]+19),t,.18,.16);}
+    music.next+=eighth;music.step++;
+  }
+}
+function musicStart(){
+  if(!ui.music||music.on||document.hidden)return;
+  const ctx=actx();if(!ctx)return;
+  if(!music.gain){music.gain=ctx.createGain();music.gain.gain.value=.11;music.gain.connect(ctx.destination);}
+  music.on=true;music.next=ctx.currentTime+.1;
+  music.timer=setInterval(musicTick,180);musicTick();
+}
+function musicStop(){music.on=false;clearInterval(music.timer);}
+document.addEventListener('visibilitychange',()=>{if(document.hidden)musicStop();else musicStart();});
+window.addEventListener('pointerdown',()=>musicStart(),{passive:true});
+
+/* ---------- крупные карты ---------- */
+function applyBig(){document.body.classList.toggle('bigcards',!!ui.bigCards);if(G&&!$('app').hidden)fitHand();}
+applyBig();
 
 /* ================= Запуск ================= */
 $('memo1').innerHTML=MEMO;
