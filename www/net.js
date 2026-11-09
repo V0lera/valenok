@@ -33,7 +33,7 @@ export async function init() {
       if (u) res(u); else authM.signInAnonymously(auth).then(c => res(c.user), rej);
     }, rej);
   });
-  fb = { app, auth, db, D: dbM, uid: user.uid };
+  fb = { app, auth, db, D: dbM, A: authM, uid: user.uid };
   net.uid = user.uid;
   dbM.onValue(dbM.ref(db, '.info/serverTimeOffset'), s => { net.offset = s.val() || 0; });
   return fb;
@@ -104,6 +104,69 @@ export const write = (path, v) => fb.D.set(R(path), v);
 export const patchRoot = v => fb.D.update(fb.D.ref(fb.db), v);
 export const del = path => fb.D.remove(R(path));
 export const send = (code, a) => fb.D.push(R(`rooms/${code}/actions`), { ...a, uid: fb.uid, at: Date.now() });
+
+/* ================= Профиль и статистика ================= */
+// Сложить накопленные на телефоне приращения со статистикой в облаке
+export async function addStats(pending, name) {
+  await init();
+  for (const mode of Object.keys(pending)) {
+    const add = pending[mode] || {};
+    await fb.D.runTransaction(R(`users/${fb.uid}/stats/${mode}`), cur => {
+      const s = cur || {};
+      for (const [k, v] of Object.entries(add)) {
+        if (k === 'bestMinus') s[k] = Math.min(s[k] ?? 0, v);
+        else s[k] = (s[k] || 0) + v;
+      }
+      return s;
+    });
+  }
+  if (name) await fb.D.set(R(`users/${fb.uid}/name`), name);
+}
+export async function getStats() {
+  await init();
+  const s = await fb.D.get(R(`users/${fb.uid}/stats`));
+  return s.val() || {};
+}
+export function email() { return fb && fb.auth.currentUser && fb.auth.currentUser.email || null; }
+
+function authText(e) {
+  const c = String(e && e.code || '');
+  const m = {
+    'auth/email-already-in-use': 'Эта почта уже привязана к другому профилю. Нажмите «Войти».',
+    'auth/credential-already-in-use': 'Эта почта уже привязана к другому профилю. Нажмите «Войти».',
+    'auth/invalid-email': 'Почта написана с ошибкой.',
+    'auth/weak-password': 'Пароль слишком короткий: нужно хотя бы 6 символов.',
+    'auth/missing-password': 'Введите пароль.',
+    'auth/wrong-password': 'Неверная почта или пароль.',
+    'auth/invalid-credential': 'Неверная почта или пароль.',
+    'auth/user-not-found': 'Профиля с такой почтой нет. Нажмите «Привязать».',
+    'auth/too-many-requests': 'Слишком много попыток. Подождите пару минут.',
+    'auth/operation-not-allowed': 'В Firebase не включён вход по почте (Authentication → Email/Password).',
+    'auth/network-request-failed': 'Нет связи с сервером. Проверьте интернет.',
+  };
+  return m[c] || friendly(e);
+}
+export const authErrText = authText;
+
+// Привязать почту к текущему (анонимному) профилю — статистика остаётся
+export async function linkEmail(mail, pw) {
+  await init();
+  const cred = fb.A.EmailAuthProvider.credential(mail, pw);
+  await fb.A.linkWithCredential(fb.auth.currentUser, cred);
+}
+// Войти в уже существующий профиль (например, на новом телефоне)
+export async function signInEmail(mail, pw) {
+  await init();
+  const c = await fb.A.signInWithEmailAndPassword(fb.auth, mail, pw);
+  fb.uid = net.uid = c.user.uid;
+}
+// Выйти из профиля: телефон получает новый анонимный профиль
+export async function signOutToAnon() {
+  await init();
+  await fb.A.signOut(fb.auth);
+  const c = await fb.A.signInAnonymously(fb.auth);
+  fb.uid = net.uid = c.user.uid;
+}
 
 export async function leave() {
   unsubs.forEach(u => u()); unsubs = [];

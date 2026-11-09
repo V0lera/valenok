@@ -79,7 +79,7 @@ function draw(pi,k){
   let got=0;
   for(let i=0;i<k;i++){if(!G.deck.length)refill();if(!G.deck.length)break;P(pi).hand.push(G.deck.pop());got++;}
   if(!P(pi).bot)sortHand(P(pi).hand);
-  if(got){ui.fx.push({t:'draw',pi,n:got});emit({t:'draw',pi,n:got});}
+  if(got){ui.fx.push({t:'draw',pi,n:got});emit({t:'draw',pi,n:got});if(pi===ME)bump('drawn',got);}
   return got;
 }
 function penal(i,k){
@@ -143,6 +143,7 @@ function doPlay(pi,seq){
   G.namedSuit=null;G.sel=[];
   const last=seq[seq.length-1];
   log(`${p.name}: ${seq.map(ctxt).join(' ')}`);
+  if(pi===ME){bump('thrown',seq.reduce((a,c)=>a+val(c),0));if(isKH(last)&&p.hand.length)bump('khGiven');}
   if(last.r==='8'){                       // восьмёрку кроет тот же игрок
     G.eightOwner=pi;G.drew=false;startClock();render();
     if(ctrl(pi)==='bot')schedule(botTurn,850);
@@ -510,13 +511,13 @@ function sfx(kind){
 function rot(id){let h=0;for(const ch of id)h=(h*31+ch.charCodeAt(0))%997;return (h%15)-7;}
 function esc(s){return String(s).replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));}
 
-function showScreen(id){for(const s of ['setup','lobby','app'])$(s).hidden=s!==id;if(id!=='app')$('overlay').hidden=true;}
+function showScreen(id){for(const s of ['setup','lobby','app','profile'])$(s).hidden=s!==id;if(id!=='app')$('overlay').hidden=true;}
 let prevPhase=null;
 function render(){
   if(!G)return;
   showScreen('app');
   $('roundLbl').textContent=NET.code?`Раунд ${G.round} · комната ${NET.code}`:`Раунд ${G.round}`;
-  if((G.phase==='round'||G.phase==='over')&&prevPhase!==G.phase)endSound();
+  if((G.phase==='round'||G.phase==='over')&&prevPhase!==G.phase){endSound();roundStats(G.result);}
   prevPhase=G.phase;
   renderSeats();renderTable();renderHand();renderStatus();renderModal();updateClock();save();runFx();
   if(NET.role==='host')queuePublish();
@@ -667,6 +668,114 @@ function resume(){
 function stashClock(){if(G&&NET.role==='local')G.tRemain=G.deadline?Math.max(0,G.deadline-Date.now()):null;}
 window.addEventListener('pagehide',()=>{stashClock();save();});
 
+/* ================= Статистика игрока ================= */
+// Приращения копятся на телефоне (работает и без интернета) и складываются в облако.
+const PEND_KEY='valenok-stats-pending', CLOUD_KEY='valenok-stats-cloud';
+const statMode=()=>NET.role==='local'?'bots':'online';
+function addInto(dst,src){
+  for(const [k,v] of Object.entries(src||{})){
+    if(k==='bestMinus')dst[k]=Math.min(dst[k]??0,v);else dst[k]=(dst[k]||0)+v;
+  }
+  return dst;
+}
+function bump(k,v=1){
+  if(ui.sim||!v)return;
+  const P=lsGet(PEND_KEY)||{},m=statMode();
+  P[m]=addInto(P[m]||{},{[k]:v});lsSet(PEND_KEY,P);
+}
+function roundStats(r){
+  if(!r||!r.rows||ui.sim)return;
+  const rows=r.rows,me=rows[ME];if(!me)return;
+  const add={rounds:1};
+  if(r.wi===ME){add.roundWins=1;if(me.d<0){add.minusCount=1;add.minusSum=-me.d;add.bestMinus=me.d;}}
+  if(me.reset)add.resets=1;
+  if(r.over){
+    const sc=rows.map(x=>x.after),lo=Math.min(...sc),hi=Math.max(...sc);
+    add.games=1;
+    if(me.after===lo)add.wins=1;
+    if(me.after===hi&&hi>100)add.valenki=1;
+  }
+  const P=lsGet(PEND_KEY)||{},m=statMode();P[m]=addInto(P[m]||{},add);lsSet(PEND_KEY,P);
+  flushStats();
+}
+let flushing=false;
+async function flushStats(){
+  const P=lsGet(PEND_KEY);
+  if(flushing||!P||!Object.keys(P).length)return;
+  flushing=true;lsSet(PEND_KEY,null);
+  try{
+    await N.addStats(P,myName()||null);
+    const C=lsGet(CLOUD_KEY)||{};for(const m of Object.keys(P))C[m]=addInto(C[m]||{},P[m]);lsSet(CLOUD_KEY,C);
+  }catch(e){
+    const now=lsGet(PEND_KEY)||{};for(const m of Object.keys(P))now[m]=addInto(now[m]||{},P[m]);lsSet(PEND_KEY,now);
+  }
+  flushing=false;
+}
+
+/* ================= Экран профиля ================= */
+const STAT_ROWS=[
+  ['games','Сыграно партий'],['wins','Побед в партиях'],['valenki','Был валенком'],
+  ['rounds','Сыграно раундов'],['roundWins','Первым вышел из раунда'],['thrown','Очков выкинуто на стол'],
+  ['minusCount','Закончил в минус'],['minusSum','Ушло в минус всего'],['bestMinus','Рекорд минуса'],
+  ['khGiven','Дал соперникам +5 (К♥)'],['drawn','Взял карт'],['resets','Обнулился на 100']];
+function statsView(mode){
+  const C=lsGet(CLOUD_KEY)||{},P=lsGet(PEND_KEY)||{};
+  const pick=m=>addInto(addInto({},C[m]),P[m]);
+  return mode==='all'?addInto(pick('bots'),pick('online')):pick(mode);
+}
+function fmtStat(k,s){
+  const v=s[k]||0;
+  if(k==='wins')return s.games?`${v} <small>${Math.round(v/s.games*100)}%</small>`:`${v}`;
+  if(k==='roundWins')return s.rounds?`${v} <small>${Math.round(v/s.rounds*100)}%</small>`:`${v}`;
+  if(k==='minusSum')return v?`−${v}`:'0';
+  if(k==='bestMinus')return v?`−${-v}`:'—';
+  return `${v}`;
+}
+function renderProfile(){
+  const s=statsView(ui.ptab),mail=ui.pmail;
+  const name=myName()||'Игрок';
+  $('profName').textContent=name;$('profAva').textContent=name.slice(0,1).toUpperCase();
+  $('profSub').textContent=mail?`Профиль привязан к ${mail}`:'Профиль на этом телефоне';
+  document.querySelectorAll('#profTabs button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.m===ui.ptab));
+  $('profStats').innerHTML=STAT_ROWS.map(([k,l])=>`<div class="stat ${['wins','valenki','bestMinus'].includes(k)?'key':''}"><b>${fmtStat(k,s)}</b><span>${l}</span></div>`).join('');
+  $('profAcc').innerHTML=mail
+    ?`<p>Войдите с этой почтой на другом телефоне, и статистика будет там же.</p>
+      <button class="btn" data-act="plogout">Выйти из профиля</button>`
+    :`<p>Статистика хранится в облаке. Чтобы не потерять её при переустановке приложения или смене телефона, привяжите почту и пароль.</p>
+      <input type="email" id="pMail" placeholder="почта" autocomplete="email">
+      <input type="password" id="pPw" placeholder="пароль, от 6 символов" autocomplete="current-password">
+      <div class="row"><button class="btn" data-act="plogin">Войти</button><button class="btn primary" data-act="plink">Привязать</button></div>`;
+}
+async function openProfile(){
+  ui.ptab=ui.ptab||'all';showScreen('profile');renderProfile();netMsg('Обновляем…','profMsg');
+  try{
+    await flushStats();
+    lsSet(CLOUD_KEY,await N.getStats());ui.pmail=N.email();
+    renderProfile();netMsg('','profMsg');
+  }catch(e){netMsg(N.errText(e)+' Показаны данные, сохранённые на телефоне.','profMsg');}
+}
+async function profAuth(kind){
+  const mail=($('pMail')||{}).value?.trim(),pw=($('pPw')||{}).value||'';
+  if(kind!=='out'&&(!mail||!pw)){netMsg('Введите почту и пароль.','profMsg');return;}
+  netMsg('Подождите…','profMsg');
+  try{
+    if(kind==='link')await N.linkEmail(mail,pw);
+    else if(kind==='in'){await flushStats();await N.signInEmail(mail,pw);lsSet(CLOUD_KEY,null);lsSet(HOST_KEY,null);lsSet(GUEST_KEY,null);}
+    else{await flushStats();await N.signOutToAnon();lsSet(CLOUD_KEY,null);lsSet(HOST_KEY,null);lsSet(GUEST_KEY,null);}
+    lsSet(CLOUD_KEY,await N.getStats());ui.pmail=N.email();renderProfile();
+    netMsg(kind==='link'?'Готово: профиль привязан к почте.':kind==='in'?'Вы вошли в профиль.':'Вы вышли. На телефоне начат новый профиль.','profMsg');
+  }catch(e){netMsg(N.authErrText(e),'profMsg');}
+}
+Object.assign(ACTS,{
+  profile(){openProfile();},
+  pback(){showSetup();},
+  ptab(el){ui.ptab=el.dataset.m;renderProfile();},
+  plink(){profAuth('link');},
+  plogin(){profAuth('in');},
+  plogout(){profAuth('out');}
+});
+setTimeout(()=>{if(lsGet(PEND_KEY))flushStats();},3000);
+
 /* ================= Игра с друзьями ================= */
 function netMsg(m,id='netMsg'){$(id).textContent=m||'';}
 function busy(on){document.querySelectorAll('#panelFriends button').forEach(b=>b.disabled=on);}
@@ -778,7 +887,7 @@ async function guestJoin(code,silent){
   try{
     const room=await N.joinRoom(code,name);
     NET.role='guest';NET.code=code;NET.hostUid=room.host;NET.lobby={seats:room.seats||[],timer:room.timer};
-    NET.pub=null;NET.hand=[];NET.lastV=-1;ui.gsel=[];G=null;
+    NET.pub=null;NET.hand=[];NET.lastV=-1;NET.firstPub=true;ui.gsel=[];G=null;
     lsSet(GUEST_KEY,{code,at:Date.now()});
     guestSubscribe();netMsg('');
     if(room.status==='lobby')renderLobby();
@@ -811,6 +920,8 @@ function guestApply(){
   if(pub.v!==NET.lastV){
     const first=NET.lastV<0;NET.lastV=pub.v;
     if(!first&&G)for(const e of pub.ev||[]){
+      if(e.t==='play'&&e.pi===me){bump('thrown',e.cards.reduce((a,c)=>a+val(c),0));if(isKH(e.cards[e.cards.length-1])&&NET.hand.length)bump('khGiven');}
+      if(e.t==='draw'&&e.pi===me)bump('drawn',e.n);
       if(e.t==='play'){
         const from=e.pi===me?e.cards.map(c=>{const el=document.querySelector(`#hand [data-cid="${c.id}"]`);return el?el.getBoundingClientRect():null;}):(()=>{const s=seatEl(e.pi);const r=s?s.getBoundingClientRect():null;return e.cards.map(()=>r);})();
         if(!RM){ui.fx.push({t:'play',pi:e.pi,cards:e.cards,from});e.cards.forEach(c=>ui.hold.add(c.id));}else sfx('card');
@@ -828,6 +939,7 @@ function guestApply(){
      players:pub.players.map((p,i)=>({...p,hand:i===me?hand:new Array(p.count||0).fill(0)}))};
   if(G.result&&!Array.isArray(G.result.rows))G.result.rows=Object.values(G.result.rows||{});
   ui.gsel=ui.gsel.filter(id=>hand.some(c=>c.id===id));
+  if(NET.firstPub){NET.firstPub=false;prevPhase=G.phase;}  // зашли посреди итогов раунда — не считаем его повторно
   if(!wasMyTurn&&G.phase==='play'&&G.cur===ME)sfx('turn');
   render();
   if(NET.hostAway)$('status').textContent='Хозяин комнаты отключился — ждём его возвращения…';

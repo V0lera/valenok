@@ -107,7 +107,24 @@
     <button class="btn" data-act="rejoin" id="rejoinBtn" hidden></button>
     <p class="netmsg" id="netMsg" role="status"></p>
   </div>
+  <button class="btn" data-act="profile">Профиль и статистика</button>
   <details class="memo" id="memo1"></details>
+</section>
+
+<section id="profile" class="wrap" hidden>
+  <div class="prof-head">
+    <button class="btn pback" data-act="pback" aria-label="Назад">←</button>
+    <div class="ava" id="profAva">И</div>
+    <div class="prof-id"><b id="profName">Игрок</b><span id="profSub"></span></div>
+  </div>
+  <div class="seg" id="profTabs">
+    <button data-act="ptab" data-m="all" aria-pressed="true">Всего</button>
+    <button data-act="ptab" data-m="bots" aria-pressed="false">С ботами</button>
+    <button data-act="ptab" data-m="online" aria-pressed="false">Онлайн</button>
+  </div>
+  <div class="stats" id="profStats"></div>
+  <p class="netmsg" id="profMsg" role="status"></p>
+  <div class="prof-acc" id="profAcc"></div>
 </section>
 
 <section id="lobby" class="wrap" hidden>
