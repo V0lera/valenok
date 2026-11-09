@@ -541,7 +541,7 @@ function sfx(kind){
 function rot(id){let h=0;for(const ch of id)h=(h*31+ch.charCodeAt(0))%997;return (h%15)-7;}
 function esc(s){return String(s).replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));}
 
-function showScreen(id){keepAwake(id==='app'||id==='lobby');setTimeout(()=>statusNow&&statusNow(),0);for(const s of ['setup','lobby','app','profile'])$(s).hidden=s!==id;if(id!=='app')$('overlay').hidden=true;}
+function showScreen(id){keepAwake(id==='app'||id==='lobby');setTimeout(()=>statusNow&&statusNow(),0);for(const s of ['setup','lobby','app','profile','friendsScr','settingsScr'])$(s).hidden=s!==id;if(id!=='app')$('overlay').hidden=true;}
 let prevPhase=null;
 function render(){
   if(!G)return;
@@ -832,7 +832,7 @@ async function keepAwake(on){
 document.addEventListener('visibilitychange',()=>{if(!document.hidden&&ui.awake&&!plug('KeepAwake')){ui.awake=false;keepAwake(true);}});
 let lobbyBackAt=0;
 function onBack(){
-  if(!$('profile').hidden){showSetup();return;}
+  if(!$('profile').hidden||!$('friendsScr').hidden||!$('settingsScr').hidden){showSetup();return;}
   if(!$('lobby').hidden){
     if(Date.now()-lobbyBackAt<2500){leaveGame();return;}
     lobbyBackAt=Date.now();netMsg('Нажмите «Назад» ещё раз, чтобы выйти из комнаты.','lobbyMsg');return;
@@ -889,7 +889,7 @@ function checkAch(){
   const P=lsGet('valenok-ach-pending')||[];lsSet('valenok-ach-pending',[...P,...fresh]);
   fresh.forEach((id,k)=>setTimeout(()=>{
     const t=ACH.find(a=>a[0]===id)[1];
-    if(!$('app').hidden)toast(`Достижение: ${t}`);else netMsg(`Новое достижение: ${t}`,'profMsg');
+    if(!$('app').hidden)toast(`Достижение: ${t}`);else netMsg(`Новое достижение: ${t}`,curMsg());
     sfx('suit');
   },900+k*1900));
 }
@@ -922,28 +922,35 @@ function renderProfile(){
   $('profPick').hidden=!ui.pick;
   if(ui.pick)$('profPick').innerHTML=`<div class="pick-row">${AVA_ICONS.map((_,i)=>`<button class="pick ${ui.ava.i===i?'on':''}" data-act="pava" data-i="${i}" aria-label="Значок ${i+1}">${avaHTML({i,c:ui.ava.c},'','sm')}</button>`).join('')}</div>
     <div class="pick-row">${AVA_COLS.map((c,k)=>`<button class="pick col ${ui.ava.c===k?'on':''}" data-act="pcol" data-c="${k}" style="background:${c}" aria-label="Цвет ${k+1}"></button>`).join('')}</div>`;
-  // друзья
-  renderFriends();
-  // достижения
+  // достижения: свежие полученные, остальное — по кнопке
   const got=lsGet(ACH_KEY)||{};
-  $('profAch').innerHTML=ACH.map(([id,t,d])=>`<div class="ach ${got[id]?'on':''}"><i aria-hidden="true">${got[id]?'★':'☆'}</i><b>${t}</b><span>${d}</span></div>`).join('');
-  $('profAchN').textContent=`${Object.keys(got).filter(k=>ACH.some(a=>a[0]===k)).length} из ${ACH.length}`;
-  // настройки
+  const have=ACH.filter(a=>got[a[0]]).sort((x,y)=>got[y[0]]-got[x[0]]);
+  const next=ACH.filter(a=>!got[a[0]]);
+  const list=ui.achAll?[...have,...next]:[...have.slice(0,4),...next.slice(0,Math.max(0,4-have.slice(0,4).length))];
+  $('profAch').innerHTML=list.map(([id,t,d])=>`<div class="ach ${got[id]?'on':''}"><i aria-hidden="true">${got[id]?'★':'☆'}</i><b>${t}</b><span>${d}</span></div>`).join('');
+  $('profAchN').textContent=`★ ${have.length} из ${ACH.length}`;
+  $('achAllBtn').textContent=ui.achAll?'Свернуть':`Все достижения (${ACH.length})`;
+}
+function renderSettings(){
   const seg=(act,cur,opts)=>opts.map(([v,l])=>`<button data-act="${act}" data-v="${v}" aria-pressed="${cur===v}">${l}</button>`).join('');
   $('setTable').innerHTML=seg('stable',ui.table,[['izba','Изба'],['veranda','Веранда'],['felt','Сукно']]);
   $('setBack').innerHTML=seg('sback',ui.back,[['cranberry','Клюква'],['khokhloma','Хохлома'],['gzhel','Гжель']]);
   $('setLevel').innerHTML=seg('slevel',ui.level,[['easy','Лёгкие'],['normal','Обычные'],['hard','Хитрые']]);
-  $('setVibro').innerHTML=seg('svibro',ui.vibro?'on':'off',[['on','Вибрация: вкл'],['off','выкл']]);
+  $('setSound').innerHTML=seg('ssound',ui.sound?'on':'off',[['on','Включён'],['off','Выключен']]);
+  $('setVibro').innerHTML=seg('svibro',ui.vibro?'on':'off',[['on','Включена'],['off','Выключена']]);
   $('backPreview').innerHTML='<div class="back"></div><div class="back"></div>';
-  // почта
+  const mail=ui.pmail;
   $('profAcc').innerHTML=mail
-    ?`<p>Войдите с этой почтой на другом телефоне, и статистика будет там же.</p>
+    ?`<p>Профиль привязан к <b>${esc(mail)}</b>. Войдите с этой почтой на другом телефоне — статистика и друзья будут там же.</p>
       <button class="btn" data-act="plogout">Выйти из профиля</button>`
-    :`<p>Статистика хранится в облаке. Чтобы не потерять её при переустановке приложения или смене телефона, привяжите почту и пароль.</p>
+    :`<p>Статистика и друзья хранятся в облаке. Чтобы не потерять их при переустановке приложения или смене телефона, привяжите почту и пароль.</p>
       <input type="email" id="pMail" placeholder="почта" autocomplete="email">
       <input type="password" id="pPw" placeholder="пароль, от 6 символов" autocomplete="current-password">
       <div class="row"><button class="btn" data-act="plogin">Войти</button><button class="btn primary" data-act="plink">Привязать</button></div>`;
 }
+// текущий экран — куда писать сообщения
+function curMsg(){return !$('friendsScr').hidden?'friendsMsg':!$('settingsScr').hidden?'setMsg':'profMsg';}
+function updateBadge(){const n=Object.keys(SOC.requests||{}).length,b=$('reqBadge');if(!b)return;b.hidden=!n;b.textContent=n;}
 function addRivals(a,b){const o=JSON.parse(JSON.stringify(a||{}));for(const[k,v] of Object.entries(b||{})){const r=o[k]||{games:0,w:0,l:0};r.name=v.name||r.name;r.ava=v.ava||r.ava;r.games+=v.games||0;r.w+=v.w||0;r.l+=v.l||0;o[k]=r;}return o;}
 function plural(n,a,b,c){const m=n%10,h=n%100;return m===1&&h!==11?a:m>=2&&m<=4&&(h<10||h>=20)?b:c;}
 async function loadProfile(){
@@ -954,24 +961,24 @@ async function loadProfile(){
   ui.pmail=N.email();
 }
 async function openProfile(){
-  ui.ptab=ui.ptab||'all';ui.pick=false;showScreen('profile');renderProfile();netMsg('Обновляем…','profMsg');
+  ui.ptab=ui.ptab||'all';ui.pick=false;ui.achAll=false;showScreen('profile');renderProfile();netMsg('Обновляем…',curMsg());
   try{
     await flushStats();await loadProfile();checkAch();
-    renderProfile();netMsg('','profMsg');
-  }catch(e){netMsg(N.errText(e)+' Показаны данные, сохранённые на телефоне.','profMsg');}
+    renderProfile();netMsg('',curMsg());
+  }catch(e){netMsg(N.errText(e)+' Показаны данные, сохранённые на телефоне.',curMsg());}
 }
 async function profAuth(kind){
   const mail=($('pMail')||{}).value?.trim(),pw=($('pPw')||{}).value||'';
-  if(kind!=='out'&&(!mail||!pw)){netMsg('Введите почту и пароль.','profMsg');return;}
-  netMsg('Подождите…','profMsg');
+  if(kind!=='out'&&(!mail||!pw)){netMsg('Введите почту и пароль.',curMsg());return;}
+  netMsg('Подождите…',curMsg());
   try{
     const reset=()=>{for(const k of [CLOUD_KEY,RIV_CLOUD,ACH_KEY,HOST_KEY,GUEST_KEY,'valenok-streak'])lsSet(k,null);};
     if(kind==='link')await N.linkEmail(mail,pw);
     else if(kind==='in'){await flushStats();await N.signInEmail(mail,pw);reset();}
     else{await flushStats();await N.signOutToAnon();reset();}
-    await loadProfile();if(kind!=='link'){SOC.friends={};SOC.requests={};SOC.seenReq.clear();await startSocial();}renderProfile();
-    netMsg(kind==='link'?'Готово: профиль привязан к почте.':kind==='in'?'Вы вошли в профиль.':'Вы вышли. На телефоне начат новый профиль.','profMsg');
-  }catch(e){netMsg(N.authErrText(e),'profMsg');}
+    await loadProfile();if(kind!=='link'){SOC.friends={};SOC.requests={};SOC.seenReq.clear();await startSocial();}renderSettings();
+    netMsg(kind==='link'?'Готово: профиль привязан к почте.':kind==='in'?'Вы вошли в профиль.':'Вы вышли. На телефоне начат новый профиль.',curMsg());
+  }catch(e){netMsg(N.authErrText(e),curMsg());}
 }
 function saveAva(){lsSet('valenok-ava',ui.ava);lsSet('valenok-ava-pending',true);renderProfile();flushStats();}
 $('nameIn').addEventListener('change',()=>{lsSet('valenok-name',myName());if(SOC.started)N.updateMe(myName()||null,null).catch(()=>{});});
@@ -985,10 +992,14 @@ Object.assign(ACTS,{
   pavatar(){ui.pick=!ui.pick;renderProfile();},
   pava(el){ui.ava={i:+el.dataset.i,c:ui.ava.c};saveAva();},
   pcol(el){ui.ava={i:ui.ava.i,c:+el.dataset.c};saveAva();},
-  stable(el){ui.table=el.dataset.v;lsSet('valenok-table',ui.table);applyTheme();renderProfile();},
-  sback(el){ui.back=el.dataset.v;lsSet('valenok-back',ui.back);applyTheme();renderProfile();},
-  slevel(el){ui.level=el.dataset.v;lsSet('valenok-level',ui.level);syncLevel();if(!$('profile').hidden)renderProfile();},
-  svibro(el){ui.vibro=el.dataset.v==='on';lsSet('valenok-vibro',ui.vibro);if(ui.vibro)buzz('turn');renderProfile();},
+  stable(el){ui.table=el.dataset.v;lsSet('valenok-table',ui.table);applyTheme();renderSettings();},
+  sback(el){ui.back=el.dataset.v;lsSet('valenok-back',ui.back);applyTheme();renderSettings();},
+  slevel(el){ui.level=el.dataset.v;lsSet('valenok-level',ui.level);syncLevel();if(!$('settingsScr').hidden)renderSettings();},
+  svibro(el){ui.vibro=el.dataset.v==='on';lsSet('valenok-vibro',ui.vibro);if(ui.vibro)buzz('turn');renderSettings();},
+  ssound(el){ui.sound=el.dataset.v==='on';lsSet('valenok-sound-on',ui.sound);$('sndBtn').setAttribute('aria-pressed',ui.sound);if(ui.sound)sfx('turn');renderSettings();},
+  achall(){ui.achAll=!ui.achAll;renderProfile();},
+  friends(){showScreen('friendsScr');netMsg('','friendsMsg');renderFriends();if(!SOC.started)startSocial().then(renderFriends);else{flushStats().then(()=>N.getProfile()).then(p=>{lsSet(RIV_CLOUD,p.rivals);renderFriends();}).catch(()=>{});}},
+  settings(){showScreen('settingsScr');netMsg('','setMsg');renderSettings();N.init().then(()=>{ui.pmail=N.email();renderSettings();}).catch(()=>{});},
   invite(){invite();}
 });
 function syncLevel(){document.querySelectorAll('#setupLevel button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.v===ui.level));}
@@ -1012,7 +1023,7 @@ const SOC={started:false,code:null,friends:{},requests:{},invites:{},seenReq:new
 const INV_TTL=10*60e3;
 async function startSocial(){
   try{
-    await N.init();
+    await N.init();ui.pmail=N.email();
     SOC.code=await N.ensureFriendCode();
     await N.updateMe(myName()||null,ui.ava);
     await N.watchSocial({
@@ -1040,7 +1051,8 @@ function statusNow(){
   },300);
 }
 function socialChanged(){
-  if(!$('profile').hidden)renderFriends();
+  updateBadge();
+  if(!$('friendsScr').hidden)renderFriends();
   if(!$('lobby').hidden)renderLobbyFriends();
 }
 function statusText(st){
@@ -1087,7 +1099,7 @@ async function popAnswer(yes){
     }
   }catch(e){toastAny(N.errText(e));}
 }
-function toastAny(m){if(!$('app').hidden)toast(m);else if(!$('profile').hidden)netMsg(m,'profMsg');else if(!$('lobby').hidden)netMsg(m,'lobbyMsg');else netMsg(m);}
+function toastAny(m){if(!$('app').hidden)toast(m);else if(!$('profile').hidden||!$('friendsScr').hidden||!$('settingsScr').hidden)netMsg(m,curMsg());else if(!$('lobby').hidden)netMsg(m,'lobbyMsg');else netMsg(m);}
 
 /* ---------- раздел «Друзья» в профиле ---------- */
 function renderFriends(){
@@ -1105,25 +1117,25 @@ function renderFriends(){
     <ul class="rivals">${fr.length?fr.map(f=>{const st=statusText(f.status);return `<li>${avaHTML(f.ava,f.name,'sm')}<b>${esc(f.name)}</b><span class="st ${st.c}">${st.t}</span>${score(f.uid)}<button class="x" data-act="fdel" data-id="${f.uid}" aria-label="Удалить из друзей">${SOC.confirmDel===f.uid?'удалить?':'×'}</button></li>`;}).join('')
       :'<li class="empty">Пока никого. Поделитесь своим кодом или добавьте друга по его коду.</li>'}</ul>
     ${others.length?`<span class="label">Играли вместе</span><ul class="rivals">${others.map(([id,r])=>`<li>${avaHTML(r.ava,r.name,'sm')}<b>${esc(r.name||'Игрок')}</b>${score(id)}<button class="btn mini" data-act="fask" data-id="${id}">В друзья</button></li>`).join('')}</ul>`:''}
-    ${ui.pmail?'':'<p class="hint">Привяжите почту ниже, иначе после переустановки приложения список друзей пропадёт.</p>'}`;
+    ${ui.pmail?'':'<p class="hint">Привяжите почту в «Настройках», иначе после переустановки приложения список друзей пропадёт.</p>'}`;
 }
 async function addFriendByCode(){
   const code=($('fAdd').value||'').trim().toUpperCase();
-  if(!/^[A-Z2-9]{6}$/.test(code)){netMsg('Код друга — 6 латинских букв и цифр.','profMsg');return;}
-  if(code===SOC.code){netMsg('Это ваш собственный код.','profMsg');return;}
-  netMsg('Ищем…','profMsg');
+  if(!/^[A-Z2-9]{6}$/.test(code)){netMsg('Код друга — 6 латинских букв и цифр.',curMsg());return;}
+  if(code===SOC.code){netMsg('Это ваш собственный код.',curMsg());return;}
+  netMsg('Ищем…',curMsg());
   try{
     const uid=await N.findByCode(code);
-    if(!uid){netMsg('Игрока с таким кодом нет. Проверьте код.','profMsg');return;}
+    if(!uid){netMsg('Игрока с таким кодом нет. Проверьте код.',curMsg());return;}
     await askFriend(uid);
-  }catch(e){netMsg(N.errText(e),'profMsg');}
+  }catch(e){netMsg(N.errText(e),curMsg());}
 }
 async function askFriend(uid){
-  if(SOC.friends[uid]){netMsg('Этот игрок уже у вас в друзьях.','profMsg');return;}
-  if(SOC.requests[uid]){await N.acceptRequest(uid);netMsg('Готово: вы теперь друзья.','profMsg');return;}
+  if(SOC.friends[uid]){netMsg('Этот игрок уже у вас в друзьях.',curMsg());return;}
+  if(SOC.requests[uid]){await N.acceptRequest(uid);netMsg('Готово: вы теперь друзья.',curMsg());return;}
   await N.sendRequest(uid,{name:myName()||'Игрок',ava:ui.ava});
   const c=await N.userCard(uid).catch(()=>({name:'игрок'}));
-  netMsg(`Заявка отправлена: ${c.name}. Как только примет — появится в списке.`,'profMsg');
+  netMsg(`Заявка отправлена: ${c.name}. Как только примет — появится в списке.`,curMsg());
 }
 async function shareCode(){
   const text=`Добавь меня в друзья в «Валенке»: мой код ${SOC.code}\nСкачать игру: ${APK_URL}\nИли играть в браузере: ${WEB_URL}`;
@@ -1131,8 +1143,8 @@ async function shareCode(){
     const S=plug('Share');
     if(S){await S.share({title:'Валенок',text,dialogTitle:'Поделиться кодом'});return;}
     if(navigator.share){await navigator.share({title:'Валенок',text});return;}
-    await navigator.clipboard.writeText(text);netMsg('Код скопирован — вставьте его в чат с другом.','profMsg');
-  }catch(e){if(!(e&&(e.name==='AbortError'||/cancel/i.test(e.message||''))))netMsg(`Ваш код друга: ${SOC.code}`,'profMsg');}
+    await navigator.clipboard.writeText(text);netMsg('Код скопирован — вставьте его в чат с другом.',curMsg());
+  }catch(e){if(!(e&&(e.name==='AbortError'||/cancel/i.test(e.message||''))))netMsg(`Ваш код друга: ${SOC.code}`,curMsg());}
 }
 
 /* ---------- позвать друга из комнаты ---------- */
@@ -1160,13 +1172,13 @@ Object.assign(ACTS,{
   popno(){popAnswer(false);},
   fcopy(){shareCode();},
   fadd(){addFriendByCode();},
-  fask(el){askFriend(el.dataset.id).catch(e=>netMsg(N.errText(e),'profMsg'));},
-  freqyes(el){N.acceptRequest(el.dataset.id).then(()=>netMsg('Готово: вы теперь друзья.','profMsg')).catch(e=>netMsg(N.errText(e),'profMsg'));},
+  fask(el){askFriend(el.dataset.id).catch(e=>netMsg(N.errText(e),curMsg()));},
+  freqyes(el){N.acceptRequest(el.dataset.id).then(()=>netMsg('Готово: вы теперь друзья.',curMsg())).catch(e=>netMsg(N.errText(e),curMsg()));},
   freqno(el){N.declineRequest(el.dataset.id).catch(()=>{});},
   fdel(el){
     const id=el.dataset.id;
     if(SOC.confirmDel!==id){SOC.confirmDel=id;renderFriends();setTimeout(()=>{if(SOC.confirmDel===id){SOC.confirmDel=null;renderFriends();}},3000);return;}
-    SOC.confirmDel=null;N.removeFriend(id).catch(e=>netMsg(N.errText(e),'profMsg'));
+    SOC.confirmDel=null;N.removeFriend(id).catch(e=>netMsg(N.errText(e),curMsg()));
   },
   finvite(el){inviteFriend(el.dataset.id);}
 });

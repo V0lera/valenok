@@ -1,5 +1,5 @@
 // Кэш оболочки приложения: игра с ботами работает без интернета.
-const CACHE='valenok-v4';
+const CACHE='valenok-v5';
 const FILES=['./','index.html','style.css','fonts.css','app.js','net.js','manifest.webmanifest',
   'icons/icon-192.png','icons/icon-512.png',
   'fonts/GolosText-cyrillic-0.woff2','fonts/GolosText-latin-1.woff2','fonts/RuslanDisplay-cyrillic-2.woff2','fonts/RuslanDisplay-latin-3.woff2'];

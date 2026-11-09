@@ -115,7 +115,11 @@
     <button class="btn" data-act="rejoin" id="rejoinBtn" hidden></button>
     <p class="netmsg" id="netMsg" role="status"></p>
   </div>
-  <button class="btn" data-act="profile">Профиль и статистика</button>
+  <nav class="menu3" aria-label="Меню">
+    <button data-act="profile"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4.2"/><path d="M3.5 21c.8-4.6 4.3-7 8.5-7s7.7 2.4 8.5 7z"/></svg><span>Профиль</span></button>
+    <button data-act="friends"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="8.5" cy="8.5" r="3.6"/><circle cx="16.5" cy="9.5" r="3"/><path d="M1.5 20c.6-4 3.4-6.2 7-6.2s6.4 2.2 7 6.2z"/><path d="M15.2 13.9c3.4-.4 6.4 1.4 7.3 5.6h-5.4c-.3-2.2-1-4-1.9-5.6z"/></svg><span>Друзья</span><i class="badge" id="reqBadge" hidden></i></button>
+    <button data-act="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.3 2h3.4l.5 2.6c.6.2 1.2.5 1.7.9l2.5-.9 1.7 2.9-2 1.8c.1.6.1 1.2 0 1.8l2 1.8-1.7 2.9-2.5-.9c-.5.4-1.1.7-1.7.9l-.5 2.6h-3.4l-.5-2.6c-.6-.2-1.2-.5-1.7-.9l-2.5.9-1.7-2.9 2-1.8c-.1-.6-.1-1.2 0-1.8l-2-1.8 1.7-2.9 2.5.9c.5-.4 1.1-.7 1.7-.9zM12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6z" fill-rule="evenodd"/></svg><span>Настройки</span></button>
+  </nav>
   <details class="memo" id="memo1"></details>
 </section>
 
@@ -135,15 +139,27 @@
   <p class="netmsg" id="profMsg" role="status"></p>
   <h3 class="sect">Достижения <small id="profAchN"></small></h3>
   <div class="achs" id="profAch"></div>
-  <h3 class="sect">Друзья</h3>
+  <button class="btn" data-act="achall" id="achAllBtn">Все достижения</button>
+</section>
+
+<section id="friendsScr" class="wrap screen" hidden>
+  <div class="scr-head"><button class="btn pback" data-act="pback" aria-label="Назад">←</button><h2>Друзья</h2></div>
   <div class="friends" id="profFriends"></div>
-  <h3 class="sect">Оформление и настройки</h3>
+  <p class="netmsg" id="friendsMsg" role="status"></p>
+</section>
+
+<section id="settingsScr" class="wrap screen" hidden>
+  <div class="scr-head"><button class="btn pback" data-act="pback" aria-label="Назад">←</button><h2>Настройки</h2></div>
+  <h3 class="sect">Оформление</h3>
   <div class="field"><span class="label">Стол</span><div class="seg" id="setTable"></div></div>
   <div class="field"><span class="label">Рубашка карт</span><div class="backrow"><div class="seg" id="setBack"></div><div class="backprev" id="backPreview"></div></div></div>
-  <div class="field"><span class="label">Боты</span><div class="seg" id="setLevel"></div></div>
-  <div class="field"><span class="label">Телефон</span><div class="seg two" id="setVibro"></div></div>
-  <h3 class="sect">Профиль в облаке</h3>
+  <h3 class="sect">Игра</h3>
+  <div class="field"><span class="label">Сложность ботов</span><div class="seg" id="setLevel"></div></div>
+  <div class="field"><span class="label">Звук</span><div class="seg two" id="setSound"></div></div>
+  <div class="field"><span class="label">Вибрация</span><div class="seg two" id="setVibro"></div></div>
+  <h3 class="sect">Аккаунт</h3>
   <div class="prof-acc" id="profAcc"></div>
+  <p class="netmsg" id="setMsg" role="status"></p>
 </section>
 
 <section id="lobby" class="wrap" hidden>

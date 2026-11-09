@@ -311,3 +311,16 @@ body.b-gzhel .back,body.b-gzhel .fan i{
 .pop-txt span{font-size:13px;color:var(--wool-dim)}
 .pop-btns{grid-column:1 / -1;display:grid;grid-template-columns:1fr 1.4fr;gap:8px}
 @keyframes popin{from{transform:translateY(30px);opacity:0}}
+
+/* ---------- меню из трёх кнопок и отдельные экраны ---------- */
+.menu3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.menu3 button{position:relative;display:flex;flex-direction:column;align-items:center;gap:6px;padding:12px 4px;border-radius:12px;
+  border:1px solid var(--line);background:rgba(20,10,4,.5);font-size:13px;font-weight:600}
+.menu3 svg{width:24px;height:24px;fill:var(--brass)}
+.badge{position:absolute;top:6px;right:calc(50% - 26px);min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--red);color:#fff;
+  font-size:11px;font-style:normal;font-weight:700;display:flex;align-items:center;justify-content:center;border:2px solid var(--card)}
+.badge[hidden]{display:none}
+.screen{display:flex;flex-direction:column;gap:14px;padding-block:20px;overflow-y:auto}
+.screen[hidden]{display:none}
+.scr-head{display:flex;align-items:center;gap:12px}
+.scr-head h2{margin:0;font-family:var(--display);font-weight:400;font-size:28px}
