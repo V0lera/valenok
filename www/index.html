@@ -66,10 +66,11 @@
 
 <section id="setup" class="wrap">
   <h1 class="logo">Валенок<small>карточная игра на 2–4 игрока</small></h1>
-  <div class="field">
-    <label class="label" for="nameIn">Ваше имя</label>
-    <input type="text" id="nameIn" maxlength="14" placeholder="Вы" autocomplete="off">
+  <div class="tutoffer" id="tutOffer" hidden>
+    <p><b>Впервые играете?</b> Короткое обучение за пару минут покажет все особые карты.</p>
+    <div class="row"><button class="btn" data-act="tutno">Не сейчас</button><button class="btn primary" data-act="tutorial">Пройти обучение</button></div>
   </div>
+  <button class="btn primary" data-act="continue" id="contBtn" hidden>Продолжить партию</button>
   <div class="seg tabs" id="modeSeg" style="grid-template-columns:1fr 1fr">
     <button data-act="mode" data-m="bots" aria-pressed="true">С ботами</button>
     <button data-act="mode" data-m="friends" aria-pressed="false">С друзьями</button>
@@ -99,8 +100,8 @@
       </div>
     </div>
     <div class="row col">
-      <button class="btn primary" data-act="start">Начать игру</button>
-      <button class="btn" data-act="continue" id="contBtn" hidden>Продолжить партию</button>
+      <button class="btn primary" data-act="start" id="startBtn">Начать игру</button>
+      <button class="btn" data-act="tutorial">Обучение</button>
     </div>
   </div>
   <div id="panelFriends" class="panel" hidden>
@@ -129,6 +130,10 @@
     <button class="ava-btn" id="profAva" data-act="pavatar" aria-label="Сменить аватарку"></button>
     <div class="prof-id"><b id="profName">Игрок</b><span id="profSub"></span></div>
   </div>
+  <div class="field">
+    <label class="label" for="nameIn">Ваше имя</label>
+    <input type="text" id="nameIn" maxlength="14" placeholder="Вы" autocomplete="off">
+  </div>
   <div class="seg" id="profTabs">
     <button data-act="ptab" data-m="all" aria-pressed="true">Всего</button>
     <button data-act="ptab" data-m="bots" aria-pressed="false">С ботами</button>
@@ -154,7 +159,6 @@
   <div class="field"><span class="label">Стол</span><div class="seg" id="setTable"></div></div>
   <div class="field"><span class="label">Рубашка карт</span><div class="backrow"><div class="seg" id="setBack"></div><div class="backprev" id="backPreview"></div></div></div>
   <h3 class="sect">Игра</h3>
-  <div class="field"><span class="label">Сложность ботов</span><div class="seg" id="setLevel"></div></div>
   <div class="field"><span class="label">Звук</span><div class="seg two" id="setSound"></div></div>
   <div class="field"><span class="label">Музыка</span><div class="seg two" id="setMusic"></div></div>
   <div class="field"><span class="label">Вибрация</span><div class="seg two" id="setVibro"></div></div>
@@ -180,6 +184,7 @@
   <div class="bar">
     <div class="title"><span class="brand">Валенок</span><span class="round" id="roundLbl"></span></div>
     <button class="snd icon" data-act="sound" id="sndBtn" aria-pressed="true" aria-label="Звук"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/><g class="waves"><path d="M16.5 8.5a5 5 0 0 1 0 7"/><path d="M19.5 5.5a9 9 0 0 1 0 13"/></g><g class="x"><path d="M17 9.5l5 5M22 9.5l-5 5"/></g></svg></button>
+    <button class="icon help" data-act="rules" aria-label="Правила">?</button>
     <button data-act="score">Счёт</button>
     <button data-act="exit">Выйти</button>
   </div>
@@ -191,7 +196,7 @@
     <div id="suitBadge"></div>
     <div id="toastBox"></div>
   </div>
-  <div id="status"></div>
+  <div id="status" aria-live="polite"></div>
   <div id="clock" aria-hidden="true"><div class="track"><i></i></div><b></b></div>
   <div id="log"></div>
   <div class="me" id="me"></div>
