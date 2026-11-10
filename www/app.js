@@ -106,8 +106,8 @@ function deal(){
   ui.fx=[];ui.hold.clear();snd('shuffle');
   for(let k=0;k<6;k++)for(let j=1;j<=G.n;j++)P((G.dealer+j)%G.n).hand.push(G.deck.pop());
   G.players.forEach(p=>sortHand(p.hand));
-  ui.known=new Set(P(ME).hand.map(c=>c.id));ui.lastPile=0;
-  {const order=[];for(let k=0;k<6;k++)for(let j=1;j<=G.n;j++)order.push((G.dealer+j)%G.n);ui.fx.push({t:'deal',order});emit({t:'deal',order});ui.dealUntil=Date.now()+order.length*55+450;ui.flipAt=ui.dealUntil;}
+  ui.known=new Set(P(ME).hand.map(c=>c.id));ui.lastPile=0;bump('maxHand',P(ME).hand.length);
+  {const order=[];for(let k=0;k<6;k++)for(let j=1;j<=G.n;j++)order.push((G.dealer+j)%G.n);ui.fx.push({t:'deal',order});emit({t:'deal',order});ui.dealStart=Date.now();ui.dealUntil=ui.dealStart+order.length*55+450;ui.flipAt=ui.dealUntil;}
   const c=G.deck.pop();G.pile.push(c);
   const d=G.dealer,nx=nextOf(d);
   log(`Раунд ${G.round}. Сдаёт ${P(d).name}, открыта ${ctxt(c)}`);
@@ -116,7 +116,7 @@ function deal(){
   else if(c.r==='A'){P(nx).skips++;say(`${P(nx).name} пропускает ход`);}
   if(c.r==='Q'){
     if(ctrl(d)==='bot'){setSuit(SUITS[Math.random()*4|0],d,true);}
-    else{G.phase='blind';G.deadline=null;render();return;}
+    else{G.phase='blind';G.deadline=G.timer?now()+G.timer*1000:null;render();return;}
   }
   G.cur=nx;beginTurn();
 }
@@ -130,9 +130,9 @@ function beginTurn(){
   if(p.skips>0){
     p.skips--;log(`${p.name} пропускает ход`);snd('skip');if(G.cur===ME)buzz('skip');
     {const e={t:'skip',pi:G.cur};ui.fx.push(e);emit(e);}
-    G.cur=nextOf(G.cur);G.deadline=null;render();schedule(beginTurn,650);return;
+    G.cur=nextOf(G.cur);G.deadline=null;G.drew=false;G.skipping=true;render();schedule(beginTurn,650);return;
   }
-  G.drew=false;G.sel=[];startClock();render();
+  G.skipping=false;G.drew=false;G.sel=[];startClock();render();
   const c=ctrl(G.cur);
   if(c==='bot')schedule(botTurn,850);else if(c==='me'){sfx('turn');buzz('turn');ui.hintAt=Date.now();}
 }
@@ -171,7 +171,7 @@ function doPlay(pi,seq){
   }
   if(last.r==='Q'){
     if(ctrl(pi)==='bot')setSuit(botSuit(pi),pi);
-    else{G.phase='suit';G.suitBy=pi;G.deadline=null;render();return;}
+    else{G.phase='suit';G.suitBy=pi;G.deadline=G.timer?now()+G.timer*1000:null;render();return;}
   }
   G.cur=nx;beginTurn();
 }
@@ -182,7 +182,7 @@ function pass(pi){
 }
 // Применить действие игрока (своё или пришедшее от друга)
 function applyAction(pi,a){
-  if(!G||pi<0)return;
+  if(!G||pi<0||G.skipping)return;
   if(a.t==='play'){
     if(G.phase!=='play'||G.cur!==pi||!Array.isArray(a.ids))return;
     const seq=a.ids.map(id=>P(pi).hand.find(c=>c.id===id));
@@ -215,15 +215,30 @@ setInterval(()=>{
   const t=performance.now(),dt=Math.min(t-lastTick,500);lastTick=t;
   if(!G||ui.sim)return;
   // в игре с ботами таймер ждёт, пока открыто окно или свёрнута вкладка
-  if(NET.role==='local'&&G.deadline&&(ui.score||ui.exit||document.hidden)){G.deadline+=dt;return;}
+  if(NET.role==='local'&&G.deadline&&(ui.score||ui.exit||document.hidden)){if(!document.hidden)G.deadline+=dt;return;}
   updateClock();
   if(G.phase==='play'&&G.cur===ME&&G.deadline){
     const sec=Math.ceil((G.deadline-now())/1000);
     if(sec!==ui.lastSec&&sec<=5&&sec>0)sfx('tick');
     ui.lastSec=sec;
   }
-  if(NET.role!=='guest'&&G.phase==='play'&&G.deadline&&now()>=G.deadline)timeUp(G.cur);
+  if(NET.role!=='guest'&&G.deadline&&now()>=G.deadline){
+    if(G.phase==='play'&&!G.skipping)timeUp(G.cur);
+    else if(G.phase==='suit'||G.phase==='blind')autoSuit();
+  }
 },100);
+// не успел выбрать масть — выбирается сама
+function autoSuit(){
+  G.deadline=null;
+  if(G.phase==='suit'){const pi=G.suitBy;setSuit(botSuit(pi),pi);G.phase='play';G.suitBy=null;G.cur=nextOf(pi);beginTurn();}
+  else if(G.phase==='blind'){const d=G.dealer;setSuit(SUITS[Math.random()*4|0],d,true);G.phase='play';G.cur=nextOf(d);beginTurn();}
+}
+// свернули приложение — запоминаем остаток хода, вернулись — продолжаем с него
+document.addEventListener('visibilitychange',()=>{
+  if(!G||NET.role!=='local'||!G.deadline)return;
+  if(document.hidden){G.tRemain=Math.max(0,G.deadline-Date.now());save();}
+  else if(G.tRemain!=null){G.deadline=Date.now()+G.tRemain;delete G.tRemain;}
+});
 function timeUp(pi){
   G.deadline=null;if(pi===ME)G.sel=[];
   const got=draw(pi,1);
@@ -234,7 +249,7 @@ function timeUp(pi){
 }
 function updateClock(){
   const el=$('clock');if(!el)return;
-  const on=G&&G.timer&&G.phase==='play'&&G.deadline;
+  const on=G&&G.timer&&(G.phase==='play'||G.phase==='suit'||G.phase==='blind')&&G.deadline;
   el.style.visibility=on?'visible':'hidden';
   if(!on)return;
   const left=Math.max(0,G.deadline-now());
@@ -341,7 +356,7 @@ function bestMove(pi){
   return best;
 }
 function botTurn(){
-  if(!G||G.phase!=='play'||NET.role==='guest')return;
+  if(!G||G.phase!=='play'||NET.role==='guest'||G.skipping)return;
   const pi=G.cur,p=P(pi);if(ctrl(pi)!=='bot')return;
   const mv=bestMove(pi);
   if(!mv){
@@ -353,17 +368,17 @@ function botTurn(){
 // Друг отключился посреди своего хода — за него доигрывает бот
 function takeOverIfAway(i){
   if(!G||ctrl(i)!=='bot'||P(i).bot)return;
-  if(G.phase==='play'&&G.cur===i){G.deadline=null;schedule(botTurn,900);}
+  if(G.phase==='play'&&G.cur===i&&!G.skipping){G.deadline=null;schedule(botTurn,900);}
   else if(G.phase==='suit'&&G.suitBy===i){setSuit(botSuit(i),i);G.phase='play';G.suitBy=null;G.cur=nextOf(i);beginTurn();}
   else if(G.phase==='blind'&&G.dealer===i){setSuit(SUITS[Math.random()*4|0],i,true);G.phase='play';G.cur=nextOf(i);beginTurn();}
 }
 
 /* ================= Действия на этом экране ================= */
 const byId=id=>P(ME).hand.find(c=>c.id===id);
-const myTurn=()=>G&&G.phase==='play'&&G.cur===ME;
+const myTurn=()=>G&&G.phase==='play'&&G.cur===ME&&!G.skipping;
 const sel=()=>NET.role==='guest'?ui.gsel:G.sel;
 function setSel(v){if(NET.role==='guest')ui.gsel=v;else G.sel=v;}
-function flash(m){ui.flash=m;renderStatus();clearTimeout(flash.t);flash.t=setTimeout(()=>{ui.flash='';if(G)renderStatus();},1600);}
+function flash(m){ui.flash=m;if(G)renderStatus();clearTimeout(flash.t);flash.t=setTimeout(()=>{ui.flash='';if(G)renderStatus();},1600);}
 function tapCard(id){
   if(!myTurn())return;
   const c=byId(id);if(!c)return;const s=sel().slice();const k=s.indexOf(id);
@@ -401,7 +416,7 @@ const ACTS={
     if(G.phase==='suit'&&G.suitBy===ME)act({t:'suit',s});
     else if(G.phase==='blind'&&G.dealer===ME)act({t:'blind',s});
   },
-  next(){if(NET.role!=='guest')nextRound();},
+  next(){if(NET.role!=='guest'&&G&&G.phase==='round')nextRound();},
   rematch(){if(NET.role==='host')rematch();},
   score(){ui.score=true;ui.confirmNew=false;render();},
   close(){ui.score=false;render();},
@@ -418,7 +433,7 @@ const ACTS={
   begin(){hostStart();},
   lobbyleave(){leaveGame();},
   sound(el){
-    ui.sound=!ui.sound;el.setAttribute('aria-pressed',ui.sound);lsSet('valenok-sound-on',ui.sound);
+    ui.sound=!ui.sound;el.setAttribute('aria-pressed',ui.sound);lsSet('valenok-sound-on',ui.sound);if(ui.sound)musicStart();else musicStop();
     if(ui.sound)sfx('turn');
   }
 };
@@ -551,8 +566,9 @@ function esc(s){return String(s).replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','
 
 function showScreen(id){
   if(ui.curScreen!==id&&!RM){const el=$(id);el.classList.remove('enter','enter-back');void el.offsetWidth;el.classList.add(id==='setup'&&ui.curScreen?'enter-back':'enter');}
+  if(ui.curScreen!==id)setTimeout(()=>statusNow&&statusNow(),0);
   ui.curScreen=id;
-  keepAwake(id==='app'||id==='lobby');setTimeout(()=>statusNow&&statusNow(),0);for(const s of ['setup','lobby','app','profile','friendsScr','settingsScr'])$(s).hidden=s!==id;if(id!=='app')$('overlay').hidden=true;}
+  keepAwake(id==='app'||id==='lobby');for(const s of ['setup','lobby','app','profile','friendsScr','settingsScr'])$(s).hidden=s!==id;if(id!=='app')$('overlay').hidden=true;}
 let prevPhase=null;
 function render(){
   if(!G)return;
@@ -604,7 +620,7 @@ function renderHand(){
     let cls='',st='';
     if(mine){const ok=first?c.r===first.r:canStart(c);cls=ok?'ok':'dim';if(ok&&hinting){cls+=' hint';st=`--h:${i*45}ms;`;}}
     const k=s.indexOf(c.id);if(k>=0)cls+=' sel';
-    if(dealing){cls+=' dealt';st+=`--d:${Math.max(0,(i*G.n+off)*55+300-(ui.dealUntil-450-Date.now()<0?0:0))}ms;`;}
+    if(dealing){cls+=' dealt';st+=`--d:${(i*G.n+off)*55+300-(Date.now()-(ui.dealStart||Date.now()))}ms;`;}
     else if(!ui.known.has(c.id))cls+=' fresh';
     return `<button class="cardbtn" data-act="card" data-id="${c.id}" aria-label="${ctxt(c)}" style="all:unset;flex:none;position:relative;${st}">${cardHTML(c,cls,k>=0&&s.length>1?`<span class="ord">${k+1}</span>`:'')}</button>`;
   }).join('');
@@ -669,9 +685,9 @@ function renderModal(){
                :`<button class="btn primary" data-act="newgame">Новая игра</button>`;
     else btn=guest?`<p>Ждём, когда хозяин комнаты начнёт следующий раунд.</p>`:`<button class="btn primary" data-act="next">Следующий раунд</button>`;
     h=`<h2>${r.over?`Валенок — ${esc(P(loserIdx).name)}!`:`${esc(w.name)} ${r.wi===ME?'выиграли':'выиграл'} раунд`}</h2>
-      <p>Последний ход: ${r.finish}${r.rows[r.wi].d<0?` — минус ${-r.rows[r.wi].d} очков`:''}.</p>
+      <p>Последний ход: ${esc(r.finish)}${r.rows[r.wi].d<0?` — минус ${-r.rows[r.wi].d} очков`:''}.</p>
       <table class="score"><thead><tr><th>Игрок</th><th>За раунд</th><th>Итого</th></tr></thead><tbody>
-      ${r.rows.map((x,i)=>`<tr data-i="${i}"><td>${esc(x.name)}${(x.list&&x.list.length)?`<div class="minis">${x.list.map(c=>cardHTML(c,'mini')).join('')}</div>`:(x.cards?`<small>${x.cards}</small>`:'')}</td><td class="${x.d<0?'neg':''}" data-d="${x.d}">${x.d>0?'+':''}${x.d}</td><td class="${x.after>100?'lose':''}" data-a="${x.after}" data-b="${x.before}">${x.after}${x.reset?'<small>ровно 100 — обнуление</small>':''}</td></tr>`).join('')}
+      ${r.rows.map((x,i)=>`<tr data-i="${i}"><td>${esc(x.name)}${(x.list&&x.list.length)?`<div class="minis">${x.list.map(c=>cardHTML(c,'mini')).join('')}</div>`:(x.cards?`<small>${esc(x.cards)}</small>`:'')}</td><td class="${x.d<0?'neg':''}" data-d="${x.d}">${x.d>0?'+':''}${x.d}</td><td class="${x.after>100?'lose':''}" data-a="${x.after}" data-b="${x.before}">${x.after}${x.reset?'<small>ровно 100 — обнуление</small>':''}</td></tr>`).join('')}
       </tbody></table>${btn}`;
   }
   else if(ui.exit){
@@ -686,7 +702,7 @@ function renderModal(){
       <div class="row">${online?'':`<button class="btn" data-act="newgame">${ui.confirmNew?'Точно? Счёт сбросится':'Новая игра'}</button>`}<button class="btn primary" data-act="close">Вернуться</button></div>`;
   }
   if((G.phase==='round'||G.phase==='over')&&Date.now()<ui.modalAt&&!ui.exit&&!ui.score)h='';   // сначала падает валенок
-  ov.hidden=!h;if(h)sh.innerHTML=h;
+  ov.hidden=!h;if(h&&sh.dataset.h!==h){sh.innerHTML=h;sh.dataset.h=h;}
   if(h&&(G.phase==='round'||G.phase==='over'))animateScores();
 }
 
@@ -705,10 +721,11 @@ function showSetup(){
 }
 function resume(){
   ui.known=new Set(P(ME).hand.map(c=>c.id));ui.lastPile=G.pile.length;prevPhase=G.phase;
-  if(NET.role==='local'&&G.phase==='play'&&G.deadline)G.deadline=Date.now()+(G.tRemain!=null?G.tRemain:G.timer*1000);
+  if(NET.role==='local'&&G.deadline)G.deadline=Date.now()+(G.tRemain!=null?G.tRemain:G.timer*1000);
+  delete G.tRemain;
   render();
   if(G.phase==='play'){
-    if(P(G.cur).skips>0)schedule(beginTurn,700);      // прерванный пропуск хода
+    if(G.skipping||P(G.cur).skips>0)schedule(beginTurn,700);      // прерванный пропуск хода
     else if(ctrl(G.cur)==='bot')schedule(botTurn,700);
   }
 }
@@ -775,9 +792,11 @@ async function doFlush(){
   if(!Object.keys(P).length)return;
   lsSet(PEND_KEY,null);
   try{
+    if(!N.net.connected)throw new Error('offline');
     await N.addStats(P,myName()||null);
   }catch(e){
-    const now=lsGet(PEND_KEY)||{};for(const m of Object.keys(P))now[m]=addInto(now[m]||{},P[m]);lsSet(PEND_KEY,now);
+    const done=new Set(e&&e.done||[]);   // уже записанные режимы обратно не возвращаем
+    const now=lsGet(PEND_KEY)||{};for(const m of Object.keys(P))if(!done.has(m))now[m]=addInto(now[m]||{},P[m]);lsSet(PEND_KEY,now);
     return;
   }
   try{lsSet(CLOUD_KEY,await N.getStats());}catch(e){}  // свежие цифры с сервера
@@ -850,6 +869,7 @@ async function keepAwake(on){
 document.addEventListener('visibilitychange',()=>{if(!document.hidden&&ui.awake&&!plug('KeepAwake')){ui.awake=false;keepAwake(true);}});
 let lobbyBackAt=0;
 function onBack(){
+  const pop=$('pop');if(pop&&!pop.hidden){SOC.queue.shift();showPop();return;}
   if(!$('profile').hidden||!$('friendsScr').hidden||!$('settingsScr').hidden){showSetup();return;}
   if(!$('lobby').hidden){
     if(Date.now()-lobbyBackAt<2500){leaveGame();return;}
@@ -1018,7 +1038,7 @@ Object.assign(ACTS,{
   svibro(el){ui.vibro=el.dataset.v==='on';lsSet('valenok-vibro',ui.vibro);if(ui.vibro)buzz('turn');renderSettings();},
   smusic(el){ui.music=el.dataset.v==='on';lsSet('valenok-music',ui.music);if(ui.music)musicStart();else musicStop();renderSettings();},
   sbig(el){ui.bigCards=el.dataset.v==='on';lsSet('valenok-big',ui.bigCards);applyBig();renderSettings();},
-  ssound(el){ui.sound=el.dataset.v==='on';lsSet('valenok-sound-on',ui.sound);$('sndBtn').setAttribute('aria-pressed',ui.sound);if(ui.sound)sfx('turn');renderSettings();},
+  ssound(el){ui.sound=el.dataset.v==='on';if(ui.sound)musicStart();else musicStop();lsSet('valenok-sound-on',ui.sound);$('sndBtn').setAttribute('aria-pressed',ui.sound);if(ui.sound)sfx('turn');renderSettings();},
   achall(){ui.achAll=!ui.achAll;renderProfile();},
   friends(){showScreen('friendsScr');netMsg('','friendsMsg');renderFriends();if(!SOC.started)startSocial().then(renderFriends);else{flushStats().then(()=>N.getProfile()).then(p=>{lsSet(RIV_CLOUD,p.rivals);renderFriends();}).catch(()=>{});}},
   settings(){showScreen('settingsScr');netMsg('','setMsg');renderSettings();N.init().then(()=>{ui.pmail=N.email();renderSettings();}).catch(()=>{});},
@@ -1103,7 +1123,7 @@ function showPop(){
       <div class="pop-btns"><button class="btn" data-act="popno">Не сейчас</button><button class="btn primary" data-act="popyes">Войти</button></div>`
     :`${avaHTML(it.ava,it.name,'')}<div class="pop-txt"><b>${esc(it.name)} хочет добавить вас в друзья</b><span>Друзей можно звать в партию прямо из игры</span></div>
       <div class="pop-btns"><button class="btn" data-act="popno">Отклонить</button><button class="btn primary" data-act="popyes">Принять</button></div>`;
-  el.hidden=false;sfx('join');buzz('turn');
+  el.classList.toggle('top',!$('app').hidden);el.hidden=false;sfx('join');buzz('turn');
 }
 async function popAnswer(yes){
   const it=SOC.queue.shift();showPop();
@@ -1295,7 +1315,7 @@ function publish(){
   pubQueued=false;if(NET.role!=='host'||!G)return;
   const code=NET.code;
   const pub={n:G.n,round:G.round,dealer:G.dealer,cur:G.cur,phase:G.phase,namedSuit:G.namedSuit,eightOwner:G.eightOwner,
-    suitBy:G.suitBy,drew:G.drew,timer:G.timer,deadline:G.deadline,pile:G.pile.slice(-4),deckLen:G.deck.length,
+    suitBy:G.suitBy,drew:G.drew,skipping:!!G.skipping,timer:G.timer,deadline:G.deadline,pile:G.pile.slice(-4),deckLen:G.deck.length,
     log:G.log.slice(-4),result:G.result,
     players:G.players.map(p=>({name:p.name,score:p.score,skips:p.skips,count:p.hand.length,bot:p.bot,uid:p.uid,online:p.online,ava:p.ava||null}))};
   const s=JSON.stringify(pub);
@@ -1319,35 +1339,47 @@ async function guestJoin(code,silent){
   try{
     const room=await N.joinRoom(code,name,ui.ava);
     NET.role='guest';NET.code=code;NET.hostUid=room.host;NET.lobby={seats:room.seats||[],timer:room.timer};
-    NET.pub=null;NET.hand=[];NET.lastV=-1;NET.firstPub=true;ui.gsel=[];G=null;
+    NET.pub=null;NET.hand=[];NET.lastV=-1;NET.firstPub=true;NET.seated=false;NET.status=room.status;ui.gsel=[];G=null;
     lsSet(GUEST_KEY,{code,at:Date.now()});
     guestSubscribe();netMsg('');
     if(room.status==='lobby')renderLobby();
-  }catch(e){netMsg(N.errText(e));}
+  }catch(e){netMsg(N.errText(e));lsSet(GUEST_KEY,null);$('rejoinBtn').hidden=true;}
   busy(false);
 }
 function guestSubscribe(){
   const code=NET.code;
-  N.watch(`rooms/${code}/seats`,v=>{NET.lobby.seats=v||[];if(!G&&NET.status!=='playing')renderLobby();});
+  N.watch(`rooms/${code}/seats`,v=>{
+    NET.lobby.seats=Array.isArray(v)?v:Object.values(v||{});
+    const inRoom=NET.lobby.seats.some(s=>s&&s.uid===N.net.uid);
+    if(inRoom)NET.seated=true;
+    else if(NET.seated&&!G){guestClosed('Хозяин убрал вас из комнаты.');return;}
+    if(!G&&NET.status!=='playing')renderLobby();
+  });
+  clearTimeout(NET.seatT);NET.seatT=setTimeout(()=>{if(NET.role==='guest'&&!NET.seated&&!G)guestClosed('Не удалось занять место: комната заполнена или хозяин не в сети.');},15000);
   N.watch(`rooms/${code}/presence`,v=>{NET.presence=v||{};if(!G)renderLobby();else{NET.hostAway=!NET.presence[NET.hostUid];guestRender();}});
   N.watch(`rooms/${code}/status`,v=>{
     NET.status=v;
-    if(v==='closed'){guestClosed('Хозяин закрыл комнату.');return;}
+    if(v==='closed'||v===null){guestClosed('Хозяин закрыл комнату.');return;}
     if(v==='lobby'&&!G)renderLobby();
   });
   N.watch(`rooms/${code}/pub`,v=>{if(v){NET.pub=v;guestRender();}});
   N.watch(`hands/${code}/${N.net.uid}`,v=>{NET.hand=Array.isArray(v)?v:[];guestRender();});
 }
 function guestClosed(m){
-  N.leave();NET.role='local';NET.code=null;G=null;lsSet(GUEST_KEY,null);showSetup();
+  clearTimeout(NET.seatT);N.leave();NET.role='local';NET.code=null;G=null;lsSet(GUEST_KEY,null);showSetup();
   ACTS.mode(document.querySelector('#modeSeg [data-m="friends"]'));netMsg(m);
 }
+// карты от хозяина проверяем: только настоящие значения и масти
+const okCard=c=>c&&RANKS.includes(c.r)&&SUITS.includes(c.s)?{r:c.r,s:c.s,id:c.r+c.s}:null;
+const okCards=a=>(Array.isArray(a)?a:Object.values(a||{})).map(okCard).filter(Boolean);
 let gRenderQueued=false;
 function guestRender(){if(gRenderQueued)return;gRenderQueued=true;setTimeout(guestApply,0);}
 function guestApply(){
   gRenderQueued=false;
-  const pub=NET.pub;if(!pub||NET.role!=='guest')return;
-  const me=pub.players.findIndex(p=>p.uid===N.net.uid);if(me<0)return;
+  const pub=NET.pub;if(!pub||NET.role!=='guest'||!Array.isArray(pub.players))return;
+  const me=pub.players.findIndex(p=>p&&p.uid===N.net.uid);
+  if(me<0){if(NET.status&&NET.status!=='lobby')guestClosed('Игра началась без вас: места в комнате не хватило.');return;}
+  for(const e of pub.ev||[])if(e&&e.cards)e.cards=okCards(e.cards);
   // анимации — до перерисовки, пока карты ещё на своих местах
   if(pub.v!==NET.lastV){
     const first=NET.lastV<0;NET.lastV=pub.v;
@@ -1357,19 +1389,20 @@ function guestApply(){
       if(e.t==='play'){
         const from=e.pi===me?e.cards.map(c=>{const el=document.querySelector(`#hand [data-cid="${c.id}"]`);return el?el.getBoundingClientRect():null;}):(()=>{const s=seatEl(e.pi);const r=s?s.getBoundingClientRect():null;return e.cards.map(()=>r);})();
         if(!RM){ui.fx.push({t:'play',pi:e.pi,cards:e.cards,from});e.cards.forEach(c=>ui.hold.add(c.id));}else sfx('card');
-      }else if(['draw','shake','deal','big','skip','suit','crown'].includes(e.t)){ui.fx.push(e);if(e.t==='deal'){ui.dealUntil=Date.now()+e.order.length*55+450;ui.flipAt=ui.dealUntil;ui.known=new Set();}}
+      }else if(['draw','shake','deal','big','skip','suit','crown'].includes(e.t)){ui.fx.push(e);if(e.t==='deal'){ui.dealStart=Date.now();ui.dealUntil=ui.dealStart+e.order.length*55+450;ui.flipAt=ui.dealUntil;ui.known=new Set();}}
       else if(e.t==='snd')sfx(e.n);
       else if(e.t==='toast')toast(e.m);
     }
   }
   const wasMyTurn=G&&G.phase==='play'&&G.cur===ME;
   ME=me;
-  const hand=NET.hand.slice();
+  const hand=okCards(NET.hand);
   G={n:pub.n,round:pub.round,dealer:pub.dealer,cur:pub.cur,phase:pub.phase,namedSuit:pub.namedSuit??null,eightOwner:pub.eightOwner??null,
-     suitBy:pub.suitBy??null,drew:!!pub.drew,timer:pub.timer,deadline:pub.deadline||null,pile:pub.pile||[],deck:new Array(pub.deckLen||0),
+     suitBy:pub.suitBy??null,drew:!!pub.drew,skipping:!!pub.skipping,timer:pub.timer,deadline:pub.deadline||null,pile:okCards(pub.pile),deck:new Array(pub.deckLen||0),
      log:pub.log||[],result:pub.result||null,sel:[],
      players:pub.players.map((p,i)=>({...p,hand:i===me?hand:new Array(p.count||0).fill(0)}))};
   if(G.result&&!Array.isArray(G.result.rows))G.result.rows=Object.values(G.result.rows||{});
+  if(G.result){G.result.finish=String(G.result.finish||'');G.result.rows.forEach(x=>{x.list=okCards(x.list);x.cards=String(x.cards||'');x.name=String(x.name||'Игрок');});}
   ui.gsel=ui.gsel.filter(id=>hand.some(c=>c.id===id));
   if(NET.firstPub){NET.firstPub=false;prevPhase=G.phase;}  // зашли посреди итогов раунда — не считаем его повторно
   if(!wasMyTurn&&G.phase==='play'&&G.cur===ME){sfx('turn');buzz('turn');ui.hintAt=Date.now();}
@@ -1397,7 +1430,12 @@ async function leaveGame(){
   clearTimeout(timer);
   document.querySelectorAll('.flyer').forEach(e=>e.remove());ui.hold.clear();ui.fx=[];
   if(NET.role==='host'){
-    try{await N.write(`rooms/${NET.code}/status`,'closed');}catch(e){}
+    try{
+      await N.write(`rooms/${NET.code}/status`,'closed');
+      const u={};u[`rooms/${NET.code}`]=null;
+      for(const s of (NET.lobby&&NET.lobby.seats)||[])if(s&&s.uid&&s.kind!=='bot'&&s.uid!==N.net.uid)u[`hands/${NET.code}/${s.uid}`]=null;
+      setTimeout(()=>N.patchRoot(u).catch(()=>{}),1500);
+    }catch(e){}
     await N.leave();lsSet(HOST_KEY,null);
   }else if(NET.role==='guest'){await N.leave();lsSet(GUEST_KEY,null);}
   else{stashClock();save();}
@@ -1583,7 +1621,7 @@ window.addEventListener('pointermove',e=>{
     drag.el=flyer(cardHTML(c,'dragging'),r);drag.r=r;drag.btn.style.visibility='hidden';
   }
   drag.el.style.transform=`translate(${dx}px,${dy}px) rotate(${dx/14}deg)`;
-  const t=$('table').getBoundingClientRect();
+  const t=drag.tr||(drag.tr=$('table').getBoundingClientRect());
   $('pile').classList.toggle('droptarget',e.clientY<t.bottom-10);
 });
 function endDrag(e){
@@ -1678,14 +1716,17 @@ function musicTick(){
   }
 }
 function musicStart(){
-  if(!ui.music||music.on||document.hidden)return;
+  if(!ui.music||!ui.sound||music.on||document.hidden)return;
   const ctx=actx();if(!ctx)return;
   if(!music.gain){music.gain=ctx.createGain();music.gain.gain.value=.11;music.gain.connect(ctx.destination);}
   music.on=true;music.next=ctx.currentTime+.1;
   music.timer=setInterval(musicTick,180);musicTick();
 }
 function musicStop(){music.on=false;clearInterval(music.timer);}
-document.addEventListener('visibilitychange',()=>{if(document.hidden)musicStop();else musicStart();});
+document.addEventListener('visibilitychange',()=>{
+  if(document.hidden){musicStop();if(AC&&AC.state==='running')AC.suspend().catch(()=>{});}
+  else{if(AC&&AC.state==='suspended')AC.resume().catch(()=>{});musicStart();}
+});
 window.addEventListener('pointerdown',()=>musicStart(),{passive:true});
 
 /* ---------- крупные карты ---------- */

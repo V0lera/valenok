@@ -3,11 +3,12 @@
     "rooms": {
       "$code": {
         ".read": "auth != null",
-        ".write": "auth != null && (!data.exists() || data.child('host').val() === auth.uid)",
-        ".validate": "$code.matches(/^[0-9]{4}$/)",
+        ".write": "auth != null && (!data.exists() || data.child('host').val() === auth.uid || data.child('status').val() === 'closed' || data.child('created').val() < now - 21600000)",
+        ".validate": "$code.matches(/^[0-9]{4}$/) && (!newData.exists() || newData.child('host').val() === auth.uid || newData.child('host').val() === data.child('host').val())",
         "joins": {
           "$uid": {
-            ".write": "auth != null && auth.uid === $uid && data.parent().parent().exists()"
+            ".write": "auth != null && auth.uid === $uid && data.parent().parent().exists()",
+            ".validate": "newData.child('name').isString() && newData.child('name').val().length <= 20"
           }
         },
         "presence": {
@@ -47,7 +48,8 @@
       "$to": {
         ".read": "auth != null && auth.uid === $to",
         "$from": {
-          ".write": "auth != null && (auth.uid === $from || auth.uid === $to)"
+          ".write": "auth != null && (auth.uid === $from || (auth.uid === $to && !newData.exists()))",
+          ".validate": "!newData.exists() || (newData.child('name').isString() && newData.child('name').val().length <= 20)"
         }
       }
     },
@@ -69,7 +71,8 @@
       "$to": {
         ".read": "auth != null && auth.uid === $to",
         "$from": {
-          ".write": "auth != null && (auth.uid === $to || (auth.uid === $from && (!newData.exists() || root.child('friends').child($to).child($from).exists())))"
+          ".write": "auth != null && (auth.uid === $to || (auth.uid === $from && (!newData.exists() || root.child('friends').child($to).child($from).exists())))",
+          ".validate": "!newData.exists() || (newData.child('name').isString() && newData.child('name').val().length <= 20 && newData.child('room').isString() && newData.child('room').val().matches(/^[0-9]{4}$/))"
         }
       }
     }

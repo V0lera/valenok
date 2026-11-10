@@ -14,11 +14,17 @@ const CFG = {
 const V = '10.12.2';
 const BASE = `https://www.gstatic.com/firebasejs/${V}/`;
 
-export const net = { uid: null, offset: 0, code: null };
+export const net = { uid: null, offset: 0, code: null, connected: false };
 let fb = null, unsubs = [], presenceUnsub = null;
 
-export async function init() {
-  if (fb) return fb;
+let initP = null;
+// одна загрузка Firebase, даже если её просят сразу из нескольких мест
+export function init() {
+  if (fb) return Promise.resolve(fb);
+  if (!initP) initP = doInit().catch(e => { initP = null; throw e; });
+  return initP;
+}
+async function doInit() {
   const [appM, authM, dbM] = await Promise.all([
     import(BASE + 'firebase-app.js'),
     import(BASE + 'firebase-auth.js'),
@@ -36,6 +42,7 @@ export async function init() {
   fb = { app, auth, db, D: dbM, A: authM, uid: user.uid };
   net.uid = user.uid;
   dbM.onValue(dbM.ref(db, '.info/serverTimeOffset'), s => { net.offset = s.val() || 0; });
+  dbM.onValue(dbM.ref(db, '.info/connected'), s => { net.connected = !!s.val(); });
   return fb;
 }
 
@@ -66,7 +73,8 @@ export async function createRoom(name, timer, ava) {
   for (let i = 0; i < 25; i++) {
     const code = String(1000 + Math.floor(Math.random() * 9000));
     const res = await fb.D.runTransaction(R('rooms/' + code), cur => {
-      if (cur) return; // занято — пробуем другой код
+      // занято живой комнатой — пробуем другой код; закрытые и брошенные (старше 6 ч) можно занимать
+      if (cur && cur.status !== 'closed' && Date.now() - (cur.created || 0) < 6 * 3600e3) return;
       return { host: fb.uid, created: Date.now(), status: 'lobby', timer,
                seats: [{ uid: fb.uid, name, ava: ava || null, kind: 'human' }] };
     });
@@ -109,6 +117,8 @@ export const send = (code, a) => fb.D.push(R(`rooms/${code}/actions`), { ...a, u
 // Сложить накопленные на телефоне приращения со статистикой в облаке
 export async function addStats(pending, name) {
   await init();
+  const done = [];
+  try {
   for (const mode of Object.keys(pending)) {
     const add = pending[mode] || {};
     await fb.D.runTransaction(R(`users/${fb.uid}/stats/${mode}`), cur => {
@@ -120,8 +130,10 @@ export async function addStats(pending, name) {
       }
       return s;
     });
+    done.push(mode);
   }
-  if (name) await fb.D.set(R(`users/${fb.uid}/name`), name);
+  } catch (e) { e.done = done; throw e; }
+  if (name) await fb.D.set(R(`users/${fb.uid}/name`), name).catch(() => {});
 }
 const MAXK = new Set(['maxHand', 'bestStreak']);
 // Личные встречи с друзьями: users/<я>/rivals/<друг>
