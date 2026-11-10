@@ -1172,7 +1172,7 @@ setTimeout(()=>{if(lsGet(PEND_KEY)||lsGet(RIV_PEND)||lsGet('valenok-ach-pending'
     history.replaceState(null,'',location.pathname);
     setTimeout(()=>{
       ACTS.mode(document.querySelector('#modeSeg [data-m="friends"]'));$('codeIn').value=rq;
-      if(myName())guestJoin(rq);else netMsg('Вас позвали в комнату '+rq+'. Нажмите «Войти». Имя можно указать в «Профиле».');
+      guestJoin(rq);   // без имени войдёт как «Игрок»; имя можно поменять в «Профиле»
     },0);
   }
 }
