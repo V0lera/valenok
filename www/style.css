@@ -553,3 +553,47 @@ body.bigcards .card text{font-weight:800}
   clip-path:polygon(0 0,100% 0,calc(100% - 8px) 50%,100% 100%,0 100%,6px 50%);box-shadow:inset 0 -2px 0 rgba(0,0,0,.2)}
 .scoresheet .ribbon .stamp{width:18px;height:18px;flex:none;opacity:.92;transform:rotate(-10deg)}
 .scoresheet .btn:not(.primary):not(:disabled){background:#5b3a22;color:#f7f2e8;border-color:#5b3a22}
+/* ---------- живинка: отклик стола, царский выход, серии, время суток, пасхалки ---------- */
+#decor [data-prop].react{animation:prophop .3s ease-out}
+#decor [data-prop="jitter"].react{animation:propjit .3s linear}
+#decor [data-prop="steam"].react{animation:none}
+#decor .steam{transform-box:fill-box;transform-origin:50% 100%}
+#decor [data-prop="steam"].react .steam{animation:puff .3s ease-out}
+@keyframes prophop{40%{translate:0 -3px}100%{translate:0 0}}
+@keyframes propjit{20%{translate:1.5px -1px}40%{translate:-1.5px 1px}60%{translate:1px 1.5px}80%{translate:-1px -.5px}100%{translate:0 0}}
+@keyframes puff{40%{scale:1.3}100%{scale:1}}
+.fxtoast{z-index:31;background:var(--card);color:var(--ink);padding:7px 16px;border-radius:999px;font-weight:700;font-size:16px;white-space:nowrap;box-shadow:0 4px 14px rgba(0,0,0,.4);animation:fxtoast 1.9s ease forwards}
+@keyframes fxtoast{0%{opacity:0;transform:translate(-50%,-60%) scale(.9)}12%,78%{opacity:1;transform:translate(-50%,-50%) scale(1)}100%{opacity:0;transform:translate(-50%,-50%)}}
+.tsarfx{width:64px;height:48px;opacity:0}
+.tsarfx svg{width:100%;height:100%}
+.ghusk{width:6px;height:11px;border-radius:50%/60%;background:#e0b24a;border:1px solid #8a6420;animation:huskfly .9s ease-out forwards}
+@keyframes huskfly{to{opacity:0;transform:translate(calc(-50% + var(--x)),calc(-50% + var(--y))) rotate(var(--r))}}
+.samovar{display:inline-flex;align-items:center;gap:1px;flex:none;margin-left:3px;vertical-align:middle}
+.samovar svg{width:15px;height:15px}
+.samovar b{font-size:11px;color:var(--brass)}
+.seatcat{position:fixed;z-index:31;width:64px;height:43px;cursor:pointer;transition:opacity .9s}
+.seatcat svg{width:100%;height:100%;transform:scaleX(-1)}
+.seatcat.walk .l1{animation:leg .5s ease-in-out infinite alternate;transform-origin:50% 0}
+.seatcat.walk .l2{animation:leg .5s ease-in-out infinite alternate-reverse;transform-origin:50% 0}
+.seatcat .tail{animation:tail 1.2s ease-in-out infinite alternate;transform-origin:14px 38px}
+.seatcat.leave{opacity:0}
+#decor .cat,#decor .fly{pointer-events:auto;cursor:pointer}
+#decor .fly::before{content:"";position:absolute;inset:-14px}
+#decor .fly.swat{animation:swat .6s ease-out forwards}
+#decor .fly.swat .wing{animation:none}
+@keyframes swat{0%{transform:none}25%{transform:scale(1.5,.3)}70%{opacity:1;transform:scale(1.5,.3)}100%{opacity:0;transform:scale(1.5,.3)}}
+.purring svg{animation:purr .3s ease-in-out 4}
+@keyframes purr{50%{scale:1.04 .97}}
+#tod{position:fixed;inset:0;z-index:0;pointer-events:none;display:none}
+body.tod-night #tod{display:block;background:radial-gradient(120% 90% at 50% 40%,rgba(0,0,0,0) 48%,rgba(8,3,0,.5) 100%)}
+body.tod-morning #tod{display:block;background:linear-gradient(90deg,rgba(225,235,255,.14),rgba(225,235,255,.05) 35%,rgba(0,0,0,0) 62%)}
+body.tod-night #lamp{background:radial-gradient(36% 27% at 50% 38%,rgba(255,165,70,.12),rgba(0,0,0,0) 70%)}
+/* конфетти: снег и шелуха; пыль и отскоки валенка */
+.confetti.snow{width:auto;height:auto;font-size:15px}
+.confetti.husk{width:6px;height:10px;border-radius:50%/60%}
+.dust{width:12px;height:12px;border-radius:50%;background:rgba(200,185,165,.55);animation:dust .9s ease-out forwards}
+@keyframes dust{0%{opacity:.9;transform:translate(-50%,-50%) scale(.4)}100%{opacity:0;transform:translate(calc(-50% + var(--x)),-120%) scale(1.6)}}
+.bootfx.bounce{animation-name:bootbounce}
+@keyframes bootbounce{0%{transform:translate(-50%,-260%) rotate(-25deg);opacity:1}20%{transform:translate(-50%,-50%) rotate(4deg)}27%{transform:translate(-50%,-80%) rotate(-5deg)}34%{transform:translate(-50%,-50%) rotate(2deg)}39%{transform:translate(-50%,-60%) rotate(-1deg)}44%{transform:translate(-50%,-50%) rotate(0)}85%{transform:translate(-50%,-50%);opacity:1}100%{transform:translate(-50%,-40%);opacity:0}}
+.bootfx.small{width:78px;height:85px}
+@media (prefers-reduced-motion:reduce){.seatcat,.ghusk,.dust{display:none}}
