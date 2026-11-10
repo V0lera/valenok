@@ -137,7 +137,7 @@ details.memo summary{cursor:pointer;color:var(--wool-dim)}
 #handWrap::-webkit-scrollbar{display:none}
 #hand{display:flex;justify-content:center;min-width:min-content;margin:0 auto;width:max-content}
 #hand .card{cursor:pointer}
-#hand .card.dim{opacity:.5;filter:saturate(.6)}
+#hand .card.dim::after{content:"";position:absolute;inset:0;border-radius:inherit;background:rgba(20,10,4,.35);pointer-events:none}
 #hand .card.ok{box-shadow:0 0 0 2px var(--brass),0 2px 6px rgba(0,0,0,.35)}
 #hand .card.sel{transform:translateY(-16px);box-shadow:0 0 0 3px var(--brass),0 8px 16px rgba(0,0,0,.45)}
 #hand .card .ord{position:absolute;top:-10px;right:-6px;width:20px;height:20px;border-radius:50%;background:var(--brass);color:var(--ink);font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center}
@@ -165,6 +165,75 @@ table.score{width:100%;border-collapse:collapse;font-variant-numeric:tabular-num
 .bar100 i{display:block;height:100%;background:var(--brass)}
 .row{display:flex;gap:8px}
 .row .btn{flex:1}
+
+/* ---------- удобство: ход, кнопки, подсказки, обучение ---------- */
+:root{--wool-dim:#c9bdae}
+/* свой ход — яркая плашка */
+#status{align-self:center;max-width:100%;padding:4px 16px;border-radius:999px;line-height:24px;min-height:32px}
+#status.myturn{background:var(--brass);color:#2e1d11;font-size:17px;font-weight:700;text-shadow:none;box-shadow:0 2px 10px rgba(0,0,0,.35)}
+#status.pulse{animation:turnpulse .6s ease-out}
+@keyframes turnpulse{0%{transform:scale(.88);opacity:.4}60%{transform:scale(1.06);opacity:1}100%{transform:none;opacity:1}}
+.me{font-size:13px;padding:4px 10px;border:1px solid transparent;border-radius:10px;transition:border-color .2s,box-shadow .2s}
+.me.turn{border-color:var(--brass);box-shadow:0 0 0 1px var(--brass),0 0 18px rgba(217,173,85,.25);background:rgba(20,10,4,.35)}
+#log{font-size:13px;align-self:center;max-width:100%;padding:2px 12px;border-radius:999px;background:rgba(20,10,4,.45)}
+#log:empty{visibility:hidden}
+/* заказанная масть и «накройте» на сбросе */
+.pile .suitbig{position:absolute;top:-16px;right:-18px;z-index:3;width:50px;height:50px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  font-size:38px;line-height:1;background:var(--card);color:var(--ink);border:2px solid var(--brass);box-shadow:0 3px 10px rgba(0,0,0,.5);pointer-events:none}
+.pile .suitbig.red{color:var(--red)}
+.pile .ghost8{position:absolute;left:50%;bottom:-13px;transform:translateX(-50%);z-index:3;padding:1px 10px;border-radius:999px;border:1px dashed var(--brass);
+  background:rgba(20,10,4,.75);color:var(--brass);font-size:13px;white-space:nowrap;pointer-events:none}
+/* неактивные кнопки — пунктир без заливки; нужная сейчас — с подсветкой */
+.btn{position:relative}
+.btn:disabled,.btn.primary:disabled{opacity:1;background:none;border:1px dashed rgba(201,189,174,.35);color:#7d7166}
+.btn.now{border-color:var(--brass);box-shadow:0 0 0 2px var(--brass)}
+.btn.now::after{content:"";position:absolute;inset:-4px;border-radius:15px;box-shadow:0 0 16px 3px rgba(233,196,106,.7);pointer-events:none;animation:nowpulse 1.3s ease-in-out infinite}
+@keyframes nowpulse{0%,100%{opacity:.3}50%{opacity:1}}
+.deck.can::after{content:"";position:absolute;inset:-5px;border-radius:13px;box-shadow:0 0 0 3px #e9c46a,0 0 32px 8px rgba(233,196,106,.8);pointer-events:none;animation:nowpulse 1.1s ease-in-out infinite}
+.suits button:disabled{opacity:.3;cursor:default}
+.suits button.tutpick{box-shadow:0 0 0 3px var(--brass),0 0 18px rgba(233,196,106,.8)}
+/* карты в руке: крупный индекс, два ряда при большой руке */
+.card text{font-weight:800}
+#hand.two{flex-wrap:wrap}
+#hand .hbr{flex-basis:100%;height:0}
+#hand{-webkit-touch-callout:none}
+#hand .card.tutpick{box-shadow:0 0 0 3px var(--brass),0 0 18px rgba(233,196,106,.85)}
+/* мелкий текст крупнее */
+body .chip,body .seat-score,body .label,body .deck .n,body .stat span,body .ach span,body .rivals li span,body .st,body .score th,body .score td small,body .suits button,body .fcode span{font-size:13px}
+#hand .card .ord{font-size:13px}
+/* кнопки в шапке — удобные для пальца */
+.bar button{min-height:44px;padding:0 14px;font-size:14px}
+.bar button.icon{min-width:44px;justify-content:center;padding:0 10px}
+.bar .help{font-weight:700;font-size:18px}
+.bar .brand,.bar .round{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media (max-width:400px){.bar{gap:6px}.bar .brand{font-size:18px}.bar button{padding:0 10px}}
+/* таймер: последние 5 секунд — красная и толще */
+#clock .track{transition:height .2s}
+#clock.low:not(.other) .track{height:10px;border-radius:5px}
+#clock.low:not(.other) .track i{background:#e0283f}
+#clock.low:not(.other) b{color:#ff6b7f;font-weight:700}
+/* подсказки */
+#tipBar{position:absolute;left:8px;right:8px;bottom:4px;z-index:4;display:flex;align-items:center;gap:8px;padding:6px 6px 6px 12px;border-radius:12px;
+  background:rgba(20,10,4,.88);border:1px solid var(--brass);font-size:14px;line-height:1.35;animation:popin .25s ease-out}
+#tipBar span{flex:1}
+#tipBar b{color:var(--brass)}
+#tipBar button{flex:none;width:36px;height:36px;border:none;background:none;color:var(--wool-dim);font-size:20px;line-height:1}
+.cardtip{position:fixed;z-index:30;transform:translate(-50%,calc(-100% - 12px));max-width:240px;padding:8px 12px;border-radius:12px;background:var(--card);color:var(--ink);
+  font-size:14px;line-height:1.35;box-shadow:0 6px 20px rgba(0,0,0,.5);pointer-events:none;text-align:center}
+.cardtip span{color:#6b5a4a;white-space:nowrap}
+/* обучение */
+.tutoffer{display:flex;flex-direction:column;gap:10px;padding:14px;border-radius:14px;border:1px solid var(--brass);background:rgba(60,35,10,.6)}
+.tutoffer p{margin:0;line-height:1.4}
+#coach{position:relative;padding:8px 40px 8px 12px;border-radius:12px;border:1px solid var(--brass);background:rgba(30,16,6,.88)}
+#coach .coach-t{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--brass)}
+#coach p{margin:2px 0 0;font-size:14px;line-height:1.4}
+#coach p b{color:var(--brass)}
+#coach .x{position:absolute;top:4px;right:4px;width:36px;height:36px;border:none;background:none;color:var(--wool-dim);font-size:20px}
+/* профиль: три главные цифры */
+#profStats{display:flex;flex-direction:column;gap:8px}
+.stats.top3 .stat{align-items:center;text-align:center;padding:14px 6px}
+.stats.top3 .stat b{font-size:32px}
+.pmore{align-self:center}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 
 /* ---------- режимы, комната ---------- */
