@@ -463,10 +463,13 @@ function faceBody(c){
   }else if(c.r==='A'){
     b=`<circle cx="50" cy="70" r="31" fill="none" stroke="currentColor" stroke-width="1" opacity=".3"/><circle cx="50" cy="70" r="27" fill="none" stroke="currentColor" stroke-width=".6" stroke-dasharray="2 2.5" opacity=".35"/>`+use(c.s,50,70,40);
   }else{
-    const half=`<use href="#f-${c.r}" x="21" y="21" width="58" height="49"/>${use(c.s,27,24,10)}`;
-    b=`<g style="${FACE_COL[c.s]};--c2:#d9a43a"><rect x="20" y="16" width="60" height="108" rx="3" fill="#fbf6ea" stroke="currentColor" stroke-width="1.2"/>
+    // половинки фигур 64×54: плечи (x 2..62 в символе) ложатся ровно в рамку 20..80
+    const half=`<use href="#f-${c.r}" x="18" y="16" width="64" height="54"/>${use(c.s,28.4,25.4,10)}`;
+    b=`<g style="${FACE_COL[c.s]};--c2:#d9a43a"><rect x="20" y="16" width="60" height="108" rx="3" fill="#f3e7cc" stroke="#9a6c22" stroke-width="2.2"/>
       ${half}<g transform="rotate(180 50 70)">${half}</g>
-      <line x1="20" y1="70" x2="80" y2="70" stroke="currentColor" stroke-width=".8"/></g>`;
+      <line x1="20" y1="70" x2="80" y2="70" stroke="#9a6c22" stroke-width=".9"/>
+      <rect x="20" y="16" width="60" height="108" rx="3" fill="none" stroke="#d9a43a" stroke-width="1.2"/>
+      <rect x="22.6" y="18.6" width="54.8" height="102.8" rx="1.8" fill="none" stroke="#d9a43a" stroke-width=".7"/></g>`;
   }
   return b;
 }
@@ -671,6 +674,8 @@ function suitButtons(){return `<div class="suits">${SUITS.map(s=>`<button data-a
 function scoreTable(){
   return `<table class="score"><thead><tr><th>Игрок</th><th>Очки</th></tr></thead><tbody>${G.players.map(p=>`<tr><td>${esc(p.name)}<div class="bar100"><i style="width:${Math.max(0,Math.min(100,p.score))}%"></i></div></td><td>${p.score}</td></tr>`).join('')}</tbody></table>`;
 }
+// печать-валенок на ленте проигравшего в итогах
+const BOOT_STAMP='<svg class="stamp" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10.4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-dasharray="9 1.2 14 1 20 1.4"/><path transform="translate(12 12) scale(.74) translate(-13.2 -11.5)" fill="currentColor" d="M8 3h6v10c0 1.3.9 2 2.3 2.3l2.1.4c1.6.3 2.3 1.4 2 2.6-.3.9-1.2 1.7-2.4 1.7H8.4C7.1 20 6 19.1 6 17.8V5c0-1.1.9-2 2-2z"/></svg>';
 function renderModal(){
   const ov=$('overlay'),sh=$('sheet');let h='';
   const guest=NET.role==='guest',online=NET.role!=='local';
@@ -687,7 +692,7 @@ function renderModal(){
     h=`<h2>${r.over?`Валенок — ${esc(P(loserIdx).name)}!`:`${esc(w.name)} ${r.wi===ME?'выиграли':'выиграл'} раунд`}</h2>
       <p>Последний ход: ${esc(r.finish)}${r.rows[r.wi].d<0?` — минус ${-r.rows[r.wi].d} очков`:''}.</p>
       <table class="score"><thead><tr><th>Игрок</th><th>За раунд</th><th>Итого</th></tr></thead><tbody>
-      ${r.rows.map((x,i)=>`<tr data-i="${i}"><td>${esc(x.name)}${(x.list&&x.list.length)?`<div class="minis">${x.list.map(c=>cardHTML(c,'mini')).join('')}</div>`:(x.cards?`<small>${esc(x.cards)}</small>`:'')}</td><td class="${x.d<0?'neg':''}" data-d="${x.d}">${x.d>0?'+':''}${x.d}</td><td class="${x.after>100?'lose':''}" data-a="${x.after}" data-b="${x.before}">${x.after}${x.reset?'<small>ровно 100 — обнуление</small>':''}</td></tr>`).join('')}
+      ${r.rows.map((x,i)=>`<tr data-i="${i}"${i===loserIdx?' class="loser"':''}><td>${i===loserIdx?`<span class="ribbon">${esc(x.name)}${BOOT_STAMP}</span>`:`<span class="nm">${esc(x.name)}</span>`}${(x.list&&x.list.length)?`<div class="minis">${x.list.map(c=>cardHTML(c,'mini')).join('')}</div>`:(x.cards?`<small>${esc(x.cards)}</small>`:'')}</td><td class="${x.d<0?'neg':''}" data-d="${x.d}">${x.d>0?'+':''}${x.d}</td><td class="${x.after>100?'lose':''}" data-a="${x.after}" data-b="${x.before}">${x.after}${x.reset?'<small>ровно 100 — обнуление</small>':''}</td></tr>`).join('')}
       </tbody></table>${btn}`;
   }
   else if(ui.exit){
@@ -703,6 +708,7 @@ function renderModal(){
   }
   if((G.phase==='round'||G.phase==='over')&&Date.now()<ui.modalAt&&!ui.exit&&!ui.score)h='';   // сначала падает валенок
   ov.hidden=!h;if(h&&sh.dataset.h!==h){sh.innerHTML=h;sh.dataset.h=h;}
+  sh.classList.toggle('scoresheet',!!h&&(G.phase==='round'||G.phase==='over')&&!ui.exit);   // итоги — листок в линейку
   if(h&&(G.phase==='round'||G.phase==='over'))animateScores();
 }
 
@@ -827,21 +833,37 @@ const AVA_ICONS=[
   '<use href="#s-S" x="4" y="4" width="16" height="16"/>',
   '<use href="#s-D" x="4" y="4" width="16" height="16"/>',
   '<use href="#s-C" x="4" y="4" width="16" height="16"/>',
-  '<path d="M4 17h16l-1.4-8.5-4.1 3.6L12 5.5l-2.5 6.6-4.1-3.6z"/><rect x="4" y="18" width="16" height="2" rx="1"/>',
+  // 4 — петух городецкий (детали «вырезаны» цветом фона: var(--ab))
+  '<path d="M6.4 5.6c-.3-1.2.7-2 1.6-1.4.4-1 1.8-1 2.1 0 .9-.3 1.6.6 1.1 1.5z"/><circle cx="8" cy="8" r="2.6"/><path d="M5.6 7.4L3.4 8.5 5.6 9.3z"/><ellipse cx="6.4" cy="10.9" rx=".8" ry="1.2"/>'+
+  '<path d="M6.6 9.6C5 12.2 5.3 15.6 8 17.6c2.2 1.6 6.2 1.5 8.6-.6 1.9-1.7 2.4-4 1.9-6l-4.4 2c-1.5.5-3 .1-3.8-1.3L9.8 9.4z"/>'+
+  '<path d="M14.6 12.6c.3-4.4 2.8-7.9 6.4-9.1-1.3 3-1.4 5.6-.6 8.4zM16.4 14.2c1.6-2.8 4.2-4.2 6.6-4.1-1.5 1.5-2.1 3.4-2 5.4zM17.8 16.4c1.6-1.5 3.6-2 5.2-1.4-1.3.9-2 2.2-2.2 3.6z"/>'+
+  '<path d="M10.6 18.6l-.4 2.8M13.8 18.8l.3 2.6M8.8 21.6h2.6M12.9 21.6h2.6" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>'+
+  '<path d="M10.4 13.4c1.6 2.2 4.4 2.4 6.4.6M11.6 15.5c1.2 1 2.8 1 4 .2" fill="none" style="stroke:var(--ab)" stroke-width="1" stroke-linecap="round"/><circle cx="8.4" cy="7.6" r=".75" fill="#1f1b1a"/>',
   '<path d="M8 3h6v10c0 1.3.9 2 2.3 2.3l2.1.4c1.6.3 2.3 1.4 2 2.6-.3.9-1.2 1.7-2.4 1.7H8.4C7.1 20 6 19.1 6 17.8V5c0-1.1.9-2 2-2z"/>',
-  '<path d="M12 3l2.6 5.8 6.4.6-4.8 4.3 1.4 6.3L12 16.8 6.4 20l1.4-6.3L3 9.4l6.4-.6z"/>',
-  '<path d="M12 2v20M3.3 7l17.4 10M3.3 17L20.7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/><path d="M9.5 3.5L12 6l2.5-2.5M9.5 20.5L12 18l2.5 2.5" stroke="currentColor" stroke-width="1.6" fill="none"/>',
+  // 6 — самовар
+  '<rect x="11" y="1.8" width="2" height="1.6" rx=".6"/><path d="M10 3.4h4l-.5 2h-3zM7.4 5.6h9.2l-.8 1.8H8.2zM7 8h10c1.7 2.2 1.9 6.6 0 9H7c-1.9-2.4-1.7-6.8 0-9zM9.6 17h4.8l.6 1.4H9zM7.2 18.4h9.6l1 2H6.2z"/>'+
+  '<rect x="6.6" y="20.2" width="2.2" height="1.6" rx=".4"/><rect x="15.2" y="20.2" width="2.2" height="1.6" rx=".4"/>'+
+  '<path d="M6.4 9.4c-2.3.1-2.6 3.5-.1 3.7M17.6 9.4c2.3.1 2.6 3.5.1 3.7" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>'+
+  '<path d="M6.4 10.6h11.2M6.3 15h11.4" fill="none" style="stroke:var(--ab)" stroke-width=".8"/><path d="M11 12.2h2.4v1.4h1.4v1.2h-2.2v1.4h-1.2v-1.4H11z" style="fill:var(--ab)"/>',
+  // 7 — матрёшка
+  '<path d="M12 2.4c-2.6 0-4.3 2-4.3 4.6 0 1.1.3 2 .8 2.8-2 1.5-3 3.9-3 6.6 0 3 1.8 5.1 6.5 5.1s6.5-2.1 6.5-5.1c0-2.7-1-5.1-3-6.6.5-.8.8-1.7.8-2.8 0-2.6-1.7-4.6-4.3-4.6z"/>'+
+  '<circle cx="12" cy="7.4" r="2.7" style="fill:var(--ab)"/><circle cx="12" cy="7.5" r="2.05"/><circle cx="11.2" cy="7.3" r=".42" fill="#1f1b1a"/><circle cx="12.8" cy="7.3" r=".42" fill="#1f1b1a"/><circle cx="10.9" cy="8.4" r=".45" fill="#e0707e"/><circle cx="13.1" cy="8.4" r=".45" fill="#e0707e"/>'+
+  '<path d="M10.5 10.5l1.5 1 1.5-1" fill="none" style="stroke:var(--ab)" stroke-width=".9" stroke-linecap="round"/><ellipse cx="12" cy="16.3" rx="3.4" ry="3.9" style="fill:var(--ab)"/><circle cx="12" cy="16.3" r="1.3"/><path d="M12 13.4v1.2M12 18v1.2M9.6 16.3h1.2M13.2 16.3h1.2" stroke="currentColor" stroke-width="1" stroke-linecap="round"/>',
   '<circle cx="12" cy="12" r="7" fill="none" stroke="currentColor" stroke-width="4.5"/>',
-  '<path d="M5 8h11v7a4 4 0 0 1-4 4H9a4 4 0 0 1-4-4z"/><path d="M16 10h1.5a2.5 2.5 0 0 1 0 5H16" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 3.5c-1 1.2 1 1.8 0 3M11.5 3.5c-1 1.2 1 1.8 0 3" fill="none" stroke="currentColor" stroke-width="1.3"/>',
+  // 9 — балалайка (была кружка)
+  '<path d="M10.5 1.6h3l-.4 2.8h-2.2z"/><rect x="11.25" y="4" width="1.5" height="8"/><path d="M12 10.4 5.3 20.2c-.5.8 0 1.5.9 1.5h11.6c.9 0 1.4-.7.9-1.5z"/>'+
+  '<circle cx="12" cy="16.6" r="1.4" style="fill:var(--ab)"/><path d="M9.6 19.6h4.8" style="stroke:var(--ab)" stroke-width="1.1"/><path d="M10 2.6h-.9M10 3.8h-.9M14 2.6h.9M14 3.8h.9" stroke="currentColor" stroke-width=".9" stroke-linecap="round"/>',
   '<path d="M4 4l4.2 4h7.6L20 4v9.5a8 8 0 0 1-16 0z"/><circle cx="9" cy="13" r="1.3" fill="#1f1b1a"/><circle cx="15" cy="13" r="1.3" fill="#1f1b1a"/>',
-  '<circle cx="12" cy="12" r="4.5"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>'];
+  // 11 — берёзовый лист
+  '<path d="M12 2.6 12.6 3.3 13.2 3.9 13.6 4.6 14.4 5.2 14.6 5.9 15.5 6.5 15.5 7.2 16.5 7.8 16.3 8.5 17.3 9.1 16.9 9.8 17.9 10.4 17.3 11.1 18.4 11.7 17.6 12.4 18.6 13 17.7 13.7 18.6 14.3 17.4 15 17.8 15.6 16.2 16.3 16 16.9 14.2 17.6 12 18.2 9.8 17.6 8 16.9 7.8 16.3 6.2 15.6 6.6 15 5.4 14.3 6.3 13.7 5.4 13 6.4 12.4 5.6 11.7 6.7 11.1 6.1 10.4 7.1 9.8 6.7 9.1 7.7 8.5 7.5 7.8 8.5 7.2 8.5 6.5 9.4 5.9 9.6 5.2 10.4 4.6 10.8 3.9 11.4 3.3 12 2.6z"/>'+
+  '<path d="M12 18v3.6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M12 5v12.6M12 9l-2.6-1.6M12 9l2.6-1.6M12 12l-3.6-1.9M12 12l3.6-1.9M12 15l-3.8-1.6M12 15l3.8-1.6" fill="none" style="stroke:var(--ab)" stroke-width=".8" stroke-linecap="round"/>'];
 const AVA_COLS=['#b3263a','#2b5aa8','#2f5d3a','#c0702a','#6b3fa0','#1f1b1a','#8a5a2b','#2f7f86'];
 function cleanAva(a){return a&&Number.isInteger(a.i)&&Number.isInteger(a.c)&&AVA_ICONS[a.i]&&AVA_COLS[a.c]?{i:a.i,c:a.c}:null;}
 function botAva(name){const k={'Миша':{i:10,c:6},'Оля':{i:0,c:4},'Петрович':{i:9,c:2}}[name];return k||{i:4,c:5};}
 function avaHTML(a,name,size){
   a=cleanAva(a);
   if(!a)return `<span class="ava ${size||''}">${esc(String(name||'?').slice(0,1).toUpperCase())}</span>`;
-  return `<span class="ava ${size||''}" style="background:${AVA_COLS[a.c]}"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">${AVA_ICONS[a.i]}</svg></span>`;
+  return `<span class="ava ${size||''}" style="background:${AVA_COLS[a.c]};--ab:${AVA_COLS[a.c]}"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">${AVA_ICONS[a.i]}</svg></span>`;
 }
 
 /* ---------- вибрация, «Назад», экран не гаснет ---------- */
@@ -946,6 +968,7 @@ function applyTheme(){
   const b=document.body;
   b.classList.remove('t-izba','t-veranda','t-felt','b-cranberry','b-khokhloma','b-gzhel');
   b.classList.add('t-'+ui.table,'b-'+ui.back);
+  renderDecor();
 }
 
 /* ---------- экран профиля ---------- */
@@ -1497,6 +1520,49 @@ function matchesSVG(){
     <rect x="13" y="13" width="36" height="20" rx="1.5" fill="#b3263a"/><text x="31" y="26.5" text-anchor="middle" font-size="7" font-weight="700" fill="#f7f2e8" font-family="Golos Text,sans-serif" letter-spacing=".5">СПИЧКИ</text>
     ${match(8,52,48,47)}${match(22,59,60,56)}</svg>`;
 }
+// веранда: стакан чая в подстаканнике (сверху) и яблоко
+function glassSVG(){
+  const h='M78 58h7a9 9 0 0 1 9 9v10a9 9 0 0 1-9 9h-7';
+  return `<svg class="glass" viewBox="0 0 100 110"><defs><radialGradient id="tea2" cx=".45" cy=".4" r=".7"><stop offset="0" stop-color="#c0602a"/><stop offset="1" stop-color="#5a1c08"/></radialGradient></defs>
+    <path d="${h}" fill="none" stroke="#8d939b" stroke-width="7"/><path d="${h}" fill="none" stroke="#dfe2e6" stroke-width="2.2"/>
+    <circle cx="48" cy="72" r="32" fill="#b9bec5" stroke="#7d838b" stroke-width="1.6"/>
+    <circle cx="48" cy="72" r="29.4" fill="none" stroke="#eceff2" stroke-width="2" stroke-dasharray="1.2 3.4" stroke-linecap="round"/>
+    <polygon points="75,72 72.3,83.7 64.8,93.1 54,98.3 42,98.3 31.2,93.1 23.7,83.7 21,72 23.7,60.3 31.2,50.9 42,45.7 54,45.7 64.8,50.9 72.3,60.3" fill="rgba(236,244,248,.6)" stroke="rgba(255,255,255,.85)" stroke-width="1"/>
+    <circle cx="48" cy="72" r="23" fill="url(#tea2)"/>
+    <circle cx="40" cy="79" r="7.5" fill="#e9c234"/><circle cx="40" cy="79" r="6.2" fill="#f8e58a"/>
+    <g stroke="#e9c234" stroke-width="1">${ring(40,79,6,6,8,(x,y)=>`<line x1="40" y1="79" x2="${x}" y2="${y}"/>`)}</g>
+    <path d="M58 66L92 24" stroke="#b4bac1" stroke-width="3.6" stroke-linecap="round"/><path d="M58 66L92 24" stroke="#f1f3f5" stroke-width="1.1" stroke-linecap="round"/>
+    <ellipse cx="93" cy="22.4" rx="3.4" ry="2.4" transform="rotate(-51 93 22.4)" fill="#b4bac1"/>
+    <ellipse cx="38" cy="61" rx="8" ry="3.2" fill="rgba(255,255,255,.25)" transform="rotate(-30 38 61)"/>
+    <g class="steam"><path d="M40 64c-6-8 6-14 0-22s6-14 0-20"/><path d="M50 62c6-8-6-14 0-22s-6-14 0-20"/><path d="M58 66c-6-8 6-14 0-22s6-14 0-20"/></g></svg>`;
+}
+function appleSVG(){
+  return `<svg class="apple" viewBox="0 0 60 60"><defs><radialGradient id="apl" cx=".35" cy=".35" r=".75"><stop offset="0" stop-color="#e0503a"/><stop offset=".7" stop-color="#b3263a"/><stop offset="1" stop-color="#7d1626"/></radialGradient></defs>
+    <path d="M30 17c-6-5-20-4-22 10-2 13 7 26 16 26 3 0 4-1.4 6-1.4s3 1.4 6 1.4c9 0 18-13 16-26-2-14-16-15-22-10z" fill="url(#apl)"/>
+    <ellipse cx="44" cy="36" rx="5" ry="8" fill="rgba(240,190,80,.35)" transform="rotate(-20 44 36)"/><ellipse cx="18" cy="27" rx="4" ry="6.5" fill="rgba(255,255,255,.3)" transform="rotate(25 18 27)"/>
+    <path d="M30 18c0-5 1-8 3.4-10.4" fill="none" stroke="#5b3a22" stroke-width="2.4" stroke-linecap="round"/>
+    <path d="M33 12c4-6 11-6.5 14-3.4-4 4-9 5.4-14 3.4z" fill="#4f8a3a"/><path d="M33 12c4-2 8-3 13-3" fill="none" stroke="#35652a" stroke-width=".8"/></svg>`;
+}
+// сукно: грифельная доска со счётом палочками вместо салфетки
+function slateSVG(){
+  return `<svg class="slate" viewBox="0 0 120 86"><rect x="2" y="2" width="116" height="82" rx="5" fill="#8a5a2b" stroke="#5b3a1c" stroke-width="1.5"/>
+    <rect x="5" y="5" width="110" height="76" rx="3" fill="none" stroke="rgba(255,220,170,.25)"/><rect x="10" y="10" width="100" height="66" rx="2" fill="#2f3a36"/>
+    <ellipse cx="42" cy="46" rx="28" ry="12" fill="rgba(255,255,255,.05)"/><ellipse cx="82" cy="30" rx="20" ry="8" fill="rgba(255,255,255,.04)"/>
+    <g stroke="#ecebe4" stroke-width="2.2" stroke-linecap="round" fill="none" opacity=".88">
+      <path d="M20 21l.6 16M25 20.5l-.3 16.5M30 21l.4 16M35 20.8l-.2 16.4M17 33l21-8"/>
+      <path d="M48 21l.4 16M53 20.6l-.2 16.6M58 21.2l.3 15.8M63 20.6l-.3 16.4M45 32.6l21-7.6"/>
+      <path d="M76 21l.3 16M81 20.8l-.2 16.2"/>
+      <path d="M20 49l.4 15M25 48.6l-.2 15.6M30 49l.3 15" opacity=".8"/>
+      <path d="M17 70q30-3 62 0" stroke-width="1.3" opacity=".6"/></g>
+    <rect x="80" y="77.6" width="16" height="4.4" rx="2" fill="#f4f1e8" transform="rotate(-4 88 80)"/></svg>`;
+}
+// убранство зависит от стола; перерисовываем только при смене
+function renderDecor(){
+  const d=$('decor'),t=ui.table;if(!d||renderDecor.t===t)return;renderDecor.t=t;
+  d.innerHTML=t==='veranda'?doilySVG()+glassSVG()+appleSVG()+bagelsSVG()+seedsSVG()+matchesSVG()
+    :t==='felt'?slateSVG()+mugSVG()+bagelsSVG()+matchesSVG()
+    :doilySVG()+mugSVG()+bagelsSVG()+seedsSVG()+matchesSVG();
+}
 
 /* ================= Анимации и украшения ================= */
 // элемент, который сам исчезнет после анимации
@@ -1509,7 +1575,25 @@ function targetCenter(pi){
   const el=pi===ME?$('handWrap'):seatEl(pi);if(!el)return null;
   const r=el.getBoundingClientRect();return [r.left+r.width/2,r.top+r.height/2];
 }
-const SKIP_SVG='<svg viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="19" fill="rgba(20,10,4,.55)" stroke="currentColor" stroke-width="5"/><path d="M11 37L37 11" stroke="currentColor" stroke-width="5" stroke-linecap="round"/></svg>';
+// угол места игрока, чтобы штамп не закрывал имя: у соперников — правый нижний, у меня — правый верхний
+function targetCorner(pi){
+  const el=pi===ME?$('handWrap'):seatEl(pi);if(!el)return null;
+  const r=el.getBoundingClientRect();
+  return pi===ME?[r.right-58,r.top+26]:[r.right-26,r.bottom-16];
+}
+// эффекты на одного игрока идут друг за другом (+250 мс), отложенные сбрасываются в конце раунда
+const fxBusy={};let fxGen=0;
+function queueFx(pi,fn){
+  const now=Date.now(),at=Math.max(now,fxBusy[pi]||0);fxBusy[pi]=at+250;
+  if(at<=now){fn();return;}
+  const g=fxGen;setTimeout(()=>{if(g===fxGen)fn();},at-now);
+}
+// круглый чернильный штамп «ПРОПУСК ХОДА»; неровный край — статичная маска с крапинками
+const SKIP_SVG='<svg viewBox="0 0 100 100" aria-hidden="true"><defs><mask id="skm"><rect width="100" height="100" fill="#fff"/><g fill="#000">'+
+  "<circle cx='17.8' cy='18.7' r='1.7'/><circle cx='92' cy='34.1' r='1.9'/><circle cx='90.9' cy='57.5' r='1.9'/><circle cx='22.2' cy='12.3' r='0.8'/><circle cx='11.8' cy='57.5' r='1.4'/><circle cx='17.7' cy='33.8' r='1'/><circle cx='41.3' cy='96.2' r='1.7'/><circle cx='74.5' cy='88.4' r='0.9'/><circle cx='22.2' cy='24.8' r='0.7'/><circle cx='76.6' cy='22.2' r='1'/><circle cx='96.2' cy='44.9' r='1.1'/><circle cx='63.3' cy='95.4' r='1.6'/><circle cx='25.6' cy='79.1' r='0.9'/><circle cx='86.3' cy='65.8' r='1.5'/><circle cx='34' cy='47' r='.8'/><circle cx='68' cy='52' r='.7'/>"+
+  '</g></mask></defs><g mask="url(#skm)"><circle cx="50" cy="50" r="46.6" fill="#efe2c8" fill-opacity=".9"/><g fill="none" stroke="#7a1828"><circle cx="50" cy="50" r="44" stroke-width="5.5" stroke-dasharray="52 2 37 1.5 70 2.5 41 1.8 63"/><circle cx="50" cy="50" r="36.5" stroke-width="1.6"/><path d="M16 39.5h68M16 61.5h68" stroke-width="2"/></g>'+
+  '<g fill="#7a1828"><text x="50" y="56.6" text-anchor="middle" font-size="17" textLength="64" lengthAdjust="spacingAndGlyphs">ПРОПУСК</text><text x="50" y="77" text-anchor="middle" font-size="10" textLength="30" lengthAdjust="spacingAndGlyphs">ХОДА</text>'+
+  '<path d="M38 24.5l2 3.5-2 3.5-2-3.5zM50 22.5l2.4 4-2.4 4-2.4-4zM62 24.5l2 3.5-2 3.5-2-3.5z"/></g></g></svg>';
 const CROWN_SVG='<svg viewBox="0 0 64 48" aria-hidden="true"><path d="M6 40h52l-4-28-12 11L32 4 22 23 10 12z" fill="#e0b24a" stroke="#8a6420" stroke-width="2"/><circle cx="32" cy="27" r="4" fill="#b3263a"/><circle cx="18" cy="31" r="3" fill="#2b5aa8"/><circle cx="46" cy="31" r="3" fill="#2b5aa8"/></svg>';
 const BOOT_SVG='<svg viewBox="0 0 120 130" aria-hidden="true"><defs><linearGradient id="bootg" x1="0" x2="1"><stop offset="0" stop-color="#8d857d"/><stop offset=".55" stop-color="#a8a097"/><stop offset="1" stop-color="#776f67"/></linearGradient></defs><path fill="url(#bootg)" d="M14 4h44v62c0 9 6 13 16 15l18 4c12 2 17 10 14 19-2 7-8 9-17 9H24c-7 0-12-5-12-12z"/><rect x="11" y="2" width="50" height="13" rx="4" fill="#6f675f"/><path d="M15 33l7-5 7 5 7-5 7 5 7-5 7 5" fill="none" stroke="#b3263a" stroke-width="4" stroke-linejoin="round"/><path d="M15 40h44M15 26h44" stroke="#e9c234" stroke-width="2"/><path fill="#2a2420" d="M11 106h106c-1 8-8 11-18 11H24c-7 0-12-4-13-11z"/></svg>';
 
@@ -1528,9 +1612,9 @@ function runExtraFx(f){
       a.onfinish=()=>el.remove();setTimeout(()=>el.remove(),d+700);
     });
   }else if(f.t==='big'){
-    const c=targetCenter(f.pi);if(c)fxEl('bigfx',esc(f.text),c[0],c[1]-10,1500);
+    queueFx(f.pi,()=>{const c=targetCorner(f.pi);if(c)fxEl('bigfx',esc(f.text),c[0]-34,c[1]-6,1150);});   // бирка левее штампа
   }else if(f.t==='skip'){
-    const c=targetCenter(f.pi);if(c)fxEl('skipfx',SKIP_SVG,c[0],c[1],1600);
+    queueFx(f.pi,()=>{const c=targetCorner(f.pi);if(c)fxEl('skipfx',SKIP_SVG,c[0],c[1],1150);});
   }else if(f.t==='suit'){
     const p=$('pile').getBoundingClientRect(),t=$('table').getBoundingClientRect();
     const el=fxEl('suitfx '+(isRed(f.s)?'red':''),SYM[f.s],p.left+p.width/2,p.top+p.height/2,1500);
@@ -1569,6 +1653,7 @@ function dropBoot(pi){
 function finaleFx(){
   const r=G.result;if(!r)return;
   ui.animRound=null;
+  fxGen++;for(const k in fxBusy)delete fxBusy[k];   // отложенные «+N»/«пропуск» уже не нужны
   if(r.over){
     const sc=r.rows.map(x=>x.after),hi=Math.max(...sc),lo=Math.min(...sc);
     const loser=sc.indexOf(hi);
@@ -1735,7 +1820,7 @@ applyBig();
 
 /* ================= Запуск ================= */
 $('memo1').innerHTML=MEMO;
-$('decor').innerHTML=doilySVG()+mugSVG()+bagelsSVG()+seedsSVG()+matchesSVG();
+renderDecor();
 $('nameIn').value=lsGet('valenok-name')||'';
 window.addEventListener('resize',()=>{if(G)fitHand();});
 if('serviceWorker' in navigator&&location.protocol==='https:'&&!window.Capacitor)navigator.serviceWorker.register('sw.js').catch(()=>{});
